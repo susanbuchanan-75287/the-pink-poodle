@@ -23,12 +23,21 @@ To change the phone number, edit `SALON_PHONE` in `script.js`.
 ## Photo upload portal 🖼️
 Britni can add photos to the website gallery herself — no code, no commits.
 
-- **Portal:** `admin.html` (link: `https://pinkpoodle.dog/admin.html`) — not indexed by search engines.
-- **How it works:** she enters the admin passphrase, picks a photo + caption, and taps **Upload**. A Firebase Function commits the image into `assets/gallery/` and prepends it to `gallery.json`; GitHub Pages rebuilds and the photo appears on the site in about a minute. The gallery on `index.html` renders dynamically from `gallery.json`.
-- **Backend:** Firebase Function `pinkPoodleUpload` (project `binditails-da2de`, codebase `pinkpoodle`, region `us-central1`). Source in `functions/index.js`.
+- **Portal:** `admin.html` (link: `https://pinkpoodle.dog/admin.html`) — not indexed by search engines. This is now the full **Salon Console** (see below).
+- **How it works:** she enters the admin passphrase, picks a photo, adds the dog's name/breed, and taps **Upload**. A Firebase Function commits the image into `assets/gallery/` and prepends it to `gallery.json`; GitHub Pages rebuilds and the photo appears on the site in about a minute. The gallery on `index.html` renders dynamically from `gallery.json`.
+- **Backend:** Firebase Functions `pinkPoodleUpload` (legacy) and `pinkPoodleApi` (console) — project `binditails-da2de`, codebase `pinkpoodle`, region `us-central1`. Source in `functions/index.js`.
 - **Secrets (Firebase Secret Manager):** `GH_TOKEN` (repo commit), `PP_ADMIN_KEY` (portal passphrase), `PP_FB_PAGE_ID` + `PP_FB_PAGE_TOKEN` (Facebook — placeholder `unset` until enabled).
 
-### Deploy / update the function
+## Salon Console 🩷 (admin.html)
+A tabbed, phone-friendly operations console behind the same passphrase. Backend: `pinkPoodleApi` + Firestore (collections `pp_customers`, `pp_settings`, `pp_messages`) in project `binditails-da2de`.
+
+- **📷 Gallery** — upload photos with dog **name + breed**, and **delete** any photo (removes the file from the repo and its entry from `gallery.json`).
+- **🐾 Customers (CRM)** — add customers with phone, email, address, their **dogs (name + breed)**, and **notes/history**. Search, edit, delete. Each shows a running **balance**.
+- **💬 Messaging** — from each customer card: **Ready for pickup**, **Promo**, and **Invoice**. These open Britni's own **Messages (SMS)** or **Mail** app pre-filled (free, sends from her number). The Messages tab has an email **promo blast** (all customers BCC'd) and a **history** of everything sent. Invoices add to the customer's balance automatically.
+- **⚙️ Settings** — payment method + handle/link (Venmo/CashApp/PayPal/Zelle/Square/in-salon) and editable message templates. Placeholders: `{name} {dog} {amount} {handle} {paytype} {salon}`.
+- **Delivery mode:** Today messages are composed on the staff phone (device mode — no cost, no carrier registration). The backend logs every message and is structured to switch to **automated server sending** (Twilio SMS / SendGrid email) later via `maybeServerSend()` — this requires paid accounts, US A2P 10DLC registration, and written customer opt-in consent.
+
+### Deploy / update the functions
 ```
 cd functions && npm install
 firebase deploy --only functions:pinkpoodle --project binditails-da2de
@@ -42,6 +51,7 @@ firebase deploy --only functions:pinkpoodle --project binditails-da2de
 
 ### Security note
 The fire test used the CLI's GitHub OAuth token for `GH_TOKEN`. For production, replace it with a **fine-grained PAT** scoped to only this repo's *Contents: read & write*, then re-set `GH_TOKEN` and redeploy.
+
 
 ## Enabling Facebook auto-posting (later)
 The code is already written (`functions/index.js`, guarded by the FB secrets). To turn it on:
