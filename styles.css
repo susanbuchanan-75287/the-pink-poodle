@@ -283,6 +283,13 @@ a { color: inherit; text-decoration: none; }
 .brand--footer { justify-content: center; color: #fff; font-size: 1.7rem; }
 .footer p { opacity: 0.9; font-size: 0.95rem; }
 .footer__meta { font-size: 0.82rem; opacity: 0.75; margin-top: 0.6rem; }
+.social { display: flex; justify-content: center; gap: 0.9rem; margin: 0.4rem 0 0.2rem; }
+.social__link {
+  width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+  color: #fff; background: rgba(255,255,255,0.1); border: 1.5px solid rgba(255,255,255,0.55);
+  backdrop-filter: blur(6px); transition: transform 0.3s cubic-bezier(.2,.8,.2,1), background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+}
+.social__link:hover { transform: translateY(-4px); background: #fff; color: var(--pink-deep); box-shadow: 0 12px 26px rgba(0,0,0,0.22); }
 
 /* ===== FAQ ===== */
 .faq__list { max-width: 780px; margin: 0 auto; display: grid; gap: 1rem; }
