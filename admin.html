@@ -151,6 +151,7 @@
         <button class="tab" data-tab="customers">🐾 Customers</button>
         <button class="tab" data-tab="messages">💬 Messages</button>
         <button class="tab" data-tab="settings">⚙️ Settings</button>
+        <button class="tab" data-tab="square">📅 Square</button>
       </div>
 
       <!-- GALLERY -->
@@ -249,6 +250,51 @@
           <button type="submit" class="btn btn--primary btn--block" id="passBtn">Update Passphrase</button>
           <div class="status" id="passStatus"></div>
         </form>
+      </section>
+
+      <!-- SQUARE APPOINTMENTS -->
+      <section data-panel="square" class="hidden">
+        <div class="card">
+          <h3 style="font-family:var(--serif);margin-bottom:.4rem">Square Appointments 📅</h3>
+          <p class="muted" style="margin-bottom:1rem">Website booking requests can auto-add the customer and drop a pending appointment on your Square calendar for you to confirm.</p>
+          <div class="status" id="sqStatus"></div>
+          <div id="sqNotConnected" class="hidden">
+            <p class="muted">No Square access token is set yet. Add the <strong>SQUARE_ACCESS_TOKEN</strong> secret (see the SecureBinders guide), then reload.</p>
+          </div>
+          <form id="sqForm" class="hidden">
+            <div class="row2">
+              <div class="field"><label for="sqEnv">Environment</label>
+                <select id="sqEnv"><option value="production">Production (live)</option><option value="sandbox">Sandbox (testing)</option></select>
+              </div>
+              <div class="field"><label for="sqLocation">Location</label>
+                <select id="sqLocation"><option value="">— load from Square —</option></select>
+              </div>
+            </div>
+            <div class="row2">
+              <div class="field"><label for="sqTeam">Default groomer</label>
+                <select id="sqTeam"><option value="">— load from Square —</option></select>
+              </div>
+              <div class="field"><label for="sqService">Default service</label>
+                <select id="sqService"><option value="">— load from Square —</option></select>
+              </div>
+            </div>
+            <label style="display:flex;align-items:center;gap:.5rem;margin:.4rem 0 1rem;cursor:pointer">
+              <input type="checkbox" id="sqAutoBook" checked /> Auto-add web bookings to my calendar
+            </label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button type="button" class="btn btn--soft" id="sqConnectBtn">🔄 Load from Square</button>
+              <button type="submit" class="btn btn--primary" id="sqSaveBtn">Save Square settings</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card hidden" id="sqBookingsCard">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem">
+            <h3 style="font-family:var(--serif);margin:0">Upcoming appointments</h3>
+            <button type="button" class="btn btn--soft" id="sqRefreshBtn">Refresh</button>
+          </div>
+          <div id="sqBookings"><p class="muted">Load from Square to see your calendar.</p></div>
+        </div>
       </section>
     </div>
 

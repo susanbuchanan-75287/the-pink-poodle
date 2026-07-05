@@ -135,6 +135,7 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
   if (t.dataset.tab === 'gallery') loadGallery();
   if (t.dataset.tab === 'customers') loadCustomers();
   if (t.dataset.tab === 'messages') loadHistory();
+  if (t.dataset.tab === 'square') loadSquare();
 }));
 
 function initConsole() {
@@ -458,6 +459,106 @@ $('passForm').addEventListener('submit', async (e) => {
   } catch (err) {
     setStatus($('passStatus'), '❌ ' + err.message, 'err');
   } finally { $('passBtn').disabled = false; }
+});
+
+/* ================= SQUARE ================= */
+let sqLoaded = false;
+let sqCache = { locations: [], team: [], services: [] };
+
+function sqFillSelect(sel, items, valueKey, labelFn, current) {
+  const el = $(sel);
+  const opts = items.map((it) => `<option value="${esc(it[valueKey])}"${it[valueKey] === current ? ' selected' : ''}>${esc(labelFn(it))}</option>`).join('');
+  el.innerHTML = (items.length ? '' : '<option value="">— none found —</option>') + opts;
+  if (current) el.value = current;
+}
+
+async function loadSquare() {
+  try {
+    const r = await api('squareStatus');
+    const sq = r.square || {};
+    if (!sq.hasToken) {
+      $('sqNotConnected').classList.remove('hidden');
+      $('sqForm').classList.add('hidden');
+      setStatus($('sqStatus'), '⚪ Not connected — no access token set.', 'info');
+      return;
+    }
+    $('sqNotConnected').classList.add('hidden');
+    $('sqForm').classList.remove('hidden');
+    $('sqEnv').value = sq.env || 'production';
+    $('sqAutoBook').checked = sq.autoBook !== false;
+    // Preselect saved ids even before catalog loads.
+    if (sq.locationId) $('sqLocation').innerHTML = `<option value="${esc(sq.locationId)}" selected>${esc(sq.locationId)}</option>`;
+    if (sq.teamMemberId) $('sqTeam').innerHTML = `<option value="${esc(sq.teamMemberId)}" selected>${esc(sq.teamMemberId)}</option>`;
+    if (sq.serviceVariationId) $('sqService').innerHTML = `<option value="${esc(sq.serviceVariationId)}" selected>${esc(sq.serviceVariationId)}</option>`;
+    if (sq.connected) {
+      setStatus($('sqStatus'), '🟢 Connected — web bookings ' + (sq.autoBook !== false ? 'auto-sync to your calendar.' : 'sync is paused.'), 'ok');
+      $('sqBookingsCard').classList.remove('hidden');
+      if (!sqLoaded) sqConnect();
+    } else {
+      setStatus($('sqStatus'), '🟡 Token set — click “Load from Square”, then pick a location, groomer & service and save.', 'info');
+    }
+  } catch (err) {
+    setStatus($('sqStatus'), '❌ ' + err.message, 'err');
+  }
+}
+
+async function sqConnect() {
+  setStatus($('sqStatus'), '<span class="spin"></span>Loading from Square…', 'info');
+  $('sqConnectBtn').disabled = true;
+  try {
+    const saved = await api('squareStatus').then((r) => r.square || {});
+    const r = await api('squareConnect');
+    sqCache = { locations: r.locations || [], team: r.team || [], services: r.services || [] };
+    sqLoaded = true;
+    sqFillSelect('sqLocation', sqCache.locations, 'id', (l) => l.name || l.id, saved.locationId);
+    sqFillSelect('sqTeam', sqCache.team, 'id', (t) => t.name, saved.teamMemberId);
+    sqFillSelect('sqService', sqCache.services, 'variationId', (s) => s.label + (s.durationMinutes ? ` (${s.durationMinutes}m)` : ''), saved.serviceVariationId);
+    setStatus($('sqStatus'), '✅ Loaded ' + sqCache.locations.length + ' location(s), ' + sqCache.team.length + ' groomer(s), ' + sqCache.services.length + ' service(s).', 'ok');
+    $('sqBookingsCard').classList.remove('hidden');
+    loadSqBookings();
+  } catch (err) {
+    setStatus($('sqStatus'), '❌ ' + err.message, 'err');
+  } finally { $('sqConnectBtn').disabled = false; }
+}
+
+async function loadSqBookings() {
+  const box = $('sqBookings');
+  box.innerHTML = '<p class="muted"><span class="spin"></span>Loading…</p>';
+  try {
+    const r = await api('squareBookings', { limit: 30 });
+    const b = r.bookings || [];
+    if (!b.length) { box.innerHTML = '<p class="muted">No upcoming appointments on your Square calendar.</p>'; return; }
+    box.innerHTML = b.map((x) => {
+      const when = x.startAt ? new Date(x.startAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+      const note = esc(x.sellerNote || x.customerNote || '');
+      return `<div style="padding:.6rem 0;border-bottom:1px solid var(--line)"><strong>${esc(when)}</strong> · <span class="muted">${esc(x.status || '')}</span>${note ? '<br /><span class="muted">' + note + '</span>' : ''}</div>`;
+    }).join('');
+  } catch (err) {
+    box.innerHTML = '<p class="status show err">❌ ' + esc(err.message) + '</p>';
+  }
+}
+
+$('sqConnectBtn').addEventListener('click', sqConnect);
+$('sqRefreshBtn').addEventListener('click', loadSqBookings);
+$('sqForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const cfg = {
+    env: $('sqEnv').value,
+    locationId: $('sqLocation').value,
+    teamMemberId: $('sqTeam').value,
+    serviceVariationId: $('sqService').value,
+    autoBook: $('sqAutoBook').checked,
+  };
+  $('sqSaveBtn').disabled = true;
+  setStatus($('sqStatus'), '<span class="spin"></span>Saving…', 'info');
+  try {
+    await api('squareSaveConfig', { square: cfg });
+    setStatus($('sqStatus'), '✅ Saved. ' + (cfg.autoBook ? 'Web bookings will land on your calendar.' : 'Auto-sync is paused.'), 'ok');
+    $('sqBookingsCard').classList.remove('hidden');
+    loadSqBookings();
+  } catch (err) {
+    setStatus($('sqStatus'), '❌ ' + err.message, 'err');
+  } finally { $('sqSaveBtn').disabled = false; }
 });
 
 /* ---------- auto sign-in ---------- */

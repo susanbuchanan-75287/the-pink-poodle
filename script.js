@@ -63,6 +63,8 @@ form.addEventListener('submit', async (e) => {
     breed: val('breed'),
     service: val('service'),
     prefDate: val('prefDate'),
+    bookDate: val('bookDate'),
+    bookTime: val('bookTime'),
     notes: val('notes')
   };
 

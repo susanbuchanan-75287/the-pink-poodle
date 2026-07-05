@@ -21,6 +21,11 @@ const PP_ADMIN_KEY = defineSecret("PP_ADMIN_KEY");
 const PP_FB_PAGE_ID = defineSecret("PP_FB_PAGE_ID");
 const PP_FB_PAGE_TOKEN = defineSecret("PP_FB_PAGE_TOKEN");
 
+// Square Appointments access token (optional — enables calendar sync when set).
+const SQUARE_ACCESS_TOKEN = defineSecret("SQUARE_ACCESS_TOKEN");
+
+const square = require("./square");
+
 // Shared notification transport (already provisioned in this Firebase project).
 const SENDGRID_API_KEY = defineSecret("SENDGRID_API_KEY");
 const TWILIO_ACCOUNT_SID = defineSecret("TWILIO_ACCOUNT_SID");
@@ -180,6 +185,37 @@ const SETTINGS = "pp_settings";
 const MESSAGES = "pp_messages";
 const now = () => admin.firestore.FieldValue.serverTimestamp();
 
+// Non-secret Square config lives in Firestore (pp_settings/square); the token
+// is the only secret. Assembles the cfg object square.js helpers expect.
+async function loadSquareConfig() {
+  let token = "";
+  try {
+    token = (SQUARE_ACCESS_TOKEN.value() || "").trim();
+  } catch (_) {
+    token = "";
+  }
+  // "unset" is the bootstrap sentinel so the function can deploy before Britni
+  // pastes a real token (mirrors the project's other optional-secret hooks).
+  if (token === "unset") token = "";
+  let doc = {};
+  try {
+    const s = await db.collection(SETTINGS).doc("square").get();
+    doc = s.exists ? s.data() : {};
+  } catch (_) {
+    doc = {};
+  }
+  return {
+    token,
+    env: doc.env === "sandbox" ? "sandbox" : "production",
+    version: (doc.version || "").trim() || square.DEFAULT_VERSION,
+    locationId: (doc.locationId || "").trim(),
+    teamMemberId: (doc.teamMemberId || "").trim(),
+    serviceVariationId: (doc.serviceVariationId || "").trim(),
+    autoBook: doc.autoBook !== false, // default on once configured
+    hasToken: !!token,
+  };
+}
+
 // Placeholder for future automated (server-side) delivery. Today we always
 // return device mode, so the console composes the message on the staff phone.
 async function maybeServerSend(/* { channel, to, body } */) {
@@ -236,7 +272,7 @@ function customerOut(doc) {
 
 exports.pinkPoodleApi = onRequest(
   {
-    secrets: [GH_TOKEN, PP_ADMIN_KEY, PP_FB_PAGE_ID, PP_FB_PAGE_TOKEN, SENDGRID_API_KEY],
+    secrets: [GH_TOKEN, PP_ADMIN_KEY, PP_FB_PAGE_ID, PP_FB_PAGE_TOKEN, SENDGRID_API_KEY, SQUARE_ACCESS_TOKEN],
     cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "512MiB",
     timeoutSeconds: 120,
@@ -438,6 +474,129 @@ exports.pinkPoodleApi = onRequest(
           return res.json({ ok: true });
         }
 
+        /* ---------------- Square Appointments ---------------- */
+        case "squareStatus": {
+          const cfg = await loadSquareConfig();
+          return res.json({
+            ok: true,
+            square: {
+              hasToken: cfg.hasToken,
+              connected: square.enabled(cfg),
+              env: cfg.env,
+              version: cfg.version,
+              locationId: cfg.locationId,
+              teamMemberId: cfg.teamMemberId,
+              serviceVariationId: cfg.serviceVariationId,
+              autoBook: cfg.autoBook,
+            },
+          });
+        }
+
+        // Pull live locations / team / services so Britni can pick defaults.
+        case "squareConnect": {
+          const cfg = await loadSquareConfig();
+          if (!cfg.hasToken) return res.status(400).json({ error: "No Square access token set. Add the SQUARE_ACCESS_TOKEN secret first." });
+          try {
+            const locations = await square.listLocations(cfg);
+            // Team + services need a location; if none saved yet, use the first.
+            const probe = { ...cfg, locationId: cfg.locationId || (locations[0] && locations[0].id) || "" };
+            let team = [];
+            let services = [];
+            if (probe.locationId) {
+              [team, services] = await Promise.all([
+                square.listTeamMembers(probe).catch(() => []),
+                square.listServices(probe).catch(() => []),
+              ]);
+            }
+            return res.json({ ok: true, locations, team, services });
+          } catch (e) {
+            return res.status(502).json({ error: "Square: " + (e.message || "connection failed"), squareErrors: e.squareErrors || null });
+          }
+        }
+
+        case "squareSaveConfig": {
+          const s = body.square || {};
+          const clean = {
+            env: s.env === "sandbox" ? "sandbox" : "production",
+            version: String(s.version || "").trim().slice(0, 20),
+            locationId: String(s.locationId || "").trim().slice(0, 60),
+            teamMemberId: String(s.teamMemberId || "").trim().slice(0, 60),
+            serviceVariationId: String(s.serviceVariationId || "").trim().slice(0, 60),
+            autoBook: s.autoBook !== false,
+            updatedAt: now(),
+          };
+          await db.collection(SETTINGS).doc("square").set(clean, { merge: true });
+          return res.json({ ok: true, square: clean });
+        }
+
+        case "squareBookings": {
+          const cfg = await loadSquareConfig();
+          if (!square.enabled(cfg)) return res.status(400).json({ error: "Square isn't connected yet (need a token and a saved location)." });
+          try {
+            const bookings = await square.listBookings(cfg, { limit: body.limit || 30 });
+            return res.json({ ok: true, bookings });
+          } catch (e) {
+            return res.status(502).json({ error: "Square: " + (e.message || "could not load bookings"), squareErrors: e.squareErrors || null });
+          }
+        }
+
+        // Push one CRM customer into the Square customer directory.
+        case "squareSyncCustomer": {
+          const cfg = await loadSquareConfig();
+          if (!cfg.hasToken) return res.status(400).json({ error: "No Square access token set." });
+          const c = body.customer || {};
+          const name = (c.name || "").trim();
+          const phone = normalizePhone((c.phone || "").trim());
+          const email = (c.email || "").trim();
+          if (!name || (!phone && !email)) return res.status(400).json({ error: "Customer needs a name and a phone or email." });
+          try {
+            const { customer, created } = await square.findOrCreateCustomer(cfg, {
+              name, phone, email,
+              note: "Synced from The Pink Poodle CRM",
+            });
+            if (c.id && customer && customer.id) {
+              await db.collection(CUSTOMERS).doc(c.id).set({ squareCustomerId: customer.id, updatedAt: now() }, { merge: true }).catch(() => {});
+            }
+            return res.json({ ok: true, squareCustomerId: customer && customer.id, created });
+          } catch (e) {
+            return res.status(502).json({ error: "Square: " + (e.message || "sync failed"), squareErrors: e.squareErrors || null });
+          }
+        }
+
+        // Manually create a booking on the calendar from the console.
+        case "squareCreateBooking": {
+          const cfg = await loadSquareConfig();
+          if (!square.enabled(cfg)) return res.status(400).json({ error: "Square isn't connected yet." });
+          const bk = body.booking || {};
+          const startAt = square.resolveStartAt({ date: bk.date, time: bk.time, prefText: bk.prefText });
+          if (!startAt) return res.status(400).json({ error: "Pick a valid future date and time." });
+          const serviceVariationId = (bk.serviceVariationId || cfg.serviceVariationId || "").trim();
+          const teamMemberId = (bk.teamMemberId || cfg.teamMemberId || "").trim();
+          if (!serviceVariationId || !teamMemberId) return res.status(400).json({ error: "Set a default service and groomer in Square settings first." });
+          try {
+            let customerId = (bk.squareCustomerId || "").trim();
+            if (!customerId && (bk.name || bk.phone || bk.email)) {
+              const { customer } = await square.findOrCreateCustomer(cfg, {
+                name: bk.name, phone: normalizePhone(bk.phone || ""), email: bk.email,
+              });
+              customerId = customer && customer.id;
+            }
+            const booking = await square.createBooking(cfg, {
+              customerId,
+              startAt,
+              serviceVariationId,
+              serviceVariationVersion: bk.serviceVariationVersion,
+              teamMemberId,
+              durationMinutes: bk.durationMinutes,
+              customerNote: bk.notes,
+              sellerNote: bk.sellerNote || "Created from the Salon Console",
+            });
+            return res.json({ ok: true, bookingId: booking && booking.id, status: booking && booking.status });
+          } catch (e) {
+            return res.status(502).json({ error: "Square: " + (e.message || "could not create booking"), squareErrors: e.squareErrors || null });
+          }
+        }
+
         default:
           return res.status(400).json({ error: "Unknown action: " + action });
       }
@@ -602,7 +761,7 @@ function timingSafeEqualStr(a, b) {
 
 exports.pinkPoodleBook = onRequest(
   {
-    secrets: [SENDGRID_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER],
+    secrets: [SENDGRID_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, SQUARE_ACCESS_TOKEN],
     cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "256MiB",
     timeoutSeconds: 30,
@@ -632,6 +791,8 @@ exports.pinkPoodleBook = onRequest(
       const breed = String(b.breed || "").trim().slice(0, 60);
       const service = String(b.service || "").trim().slice(0, 60);
       const when = String(b.prefDate || b.when || "").trim().slice(0, 120);
+      const bookDate = String(b.bookDate || "").trim().slice(0, 10);
+      const bookTime = String(b.bookTime || "").trim().slice(0, 5);
       const notes = String(b.notes || "").trim().slice(0, 1000);
       const testMode = b.test === true;
 
@@ -654,8 +815,56 @@ exports.pinkPoodleBook = onRequest(
         console.error("booking log failed", e);
       }
 
+      // 1b) Best-effort Square Appointments sync — never blocks the request.
+      //     Always tries to add/find the customer; creates a calendar booking
+      //     when a concrete time can be resolved and defaults are configured.
+      let square_ = { attempted: false };
+      if (!testMode) {
+        try {
+          const cfg = await loadSquareConfig();
+          if (square.enabled(cfg) && cfg.autoBook) {
+            square_.attempted = true;
+            const { customer, created } = await square.findOrCreateCustomer(cfg, {
+              name, phone, email,
+              note: [dog && `Dog: ${dog}`, breed && `Breed: ${breed}`].filter(Boolean).join(" · ") || "Booked via pinkpoodle.dog",
+            });
+            square_.customerId = customer && customer.id;
+            square_.customerCreated = created;
+            const startAt = square.resolveStartAt({ date: bookDate, time: bookTime, prefText: when });
+            if (startAt && cfg.serviceVariationId && cfg.teamMemberId) {
+              const booking = await square.createBooking(cfg, {
+                customerId: square_.customerId,
+                startAt,
+                serviceVariationId: cfg.serviceVariationId,
+                teamMemberId: cfg.teamMemberId,
+                customerNote: [service, notes].filter(Boolean).join(" — ").slice(0, 1500),
+                sellerNote: `Web request via pinkpoodle.dog — please confirm${service ? " · " + service : ""}`,
+              });
+              square_.bookingId = booking && booking.id;
+              square_.status = booking && booking.status;
+              square_.startAt = startAt;
+            } else {
+              square_.reason = !startAt ? "no-exact-time" : "no-default-service-or-groomer";
+            }
+          }
+        } catch (e) {
+          square_.error = (e && e.message) || "square sync failed";
+          console.error("square sync failed", square_.error);
+        }
+      }
+
+      let squareLine = "";
+      if (square_.bookingId) {
+        squareLine = `✅ Added to your Square calendar${square_.startAt ? " for " + new Date(square_.startAt).toLocaleString("en-US", { timeZone: "America/New_York" }) : ""} — open Square to confirm.`;
+      } else if (square_.customerId) {
+        squareLine = square_.reason === "no-exact-time"
+          ? "👤 Customer saved to Square (no exact time given — add to the calendar manually)."
+          : "👤 Customer saved to Square (set a default service & groomer to auto-book).";
+      }
+
       const tag = testMode ? "🧪 TEST — please ignore — " : "";
       const contactLine = [phone ? `📱 ${phoneRaw}` : "", email ? `✉️ ${email}` : ""].filter(Boolean).join("  ·  ");
+      const exactWhen = bookDate ? `${bookDate}${bookTime ? " " + bookTime : ""}` : "";
       const rows = [
         ["Name", name],
         ["Phone", phoneRaw],
@@ -663,12 +872,14 @@ exports.pinkPoodleBook = onRequest(
         ["Dog", [dog, breed].filter(Boolean).join(" · ")],
         ["Service", service],
         ["Preferred", when],
+        ["Requested time", exactWhen],
         ["Notes", notes],
       ].filter(([, v]) => v);
 
       const textBody =
         `${tag}New booking request from pinkpoodle.dog\n\n` +
         rows.map(([k, v]) => `${k}: ${v}`).join("\n") +
+        (squareLine ? `\n\n${squareLine}` : "") +
         (phone ? `\n\nTap to text ${name}: sms:${phone}` : "");
 
       const html =
@@ -684,6 +895,7 @@ exports.pinkPoodleBook = onRequest(
           )
           .join("") +
         `</table>` +
+        (squareLine ? `<p style="background:#fdf0f6;border:1px solid #f7c9dd;border-radius:10px;padding:10px 12px;color:#8a2560;font-weight:700;">${esc(squareLine)}</p>` : "") +
         (phone
           ? `<p><a href="sms:${esc(phone)}" style="background:linear-gradient(135deg,#e75a9c,#b83372);color:#fff;padding:11px 20px;border-radius:100px;text-decoration:none;font-weight:700;">📲 Text ${esc(name)} back</a>` +
             `&nbsp;&nbsp;<a href="tel:${esc(phone)}" style="color:#b83372;font-weight:700;">Call</a></p>`
@@ -714,7 +926,8 @@ exports.pinkPoodleBook = onRequest(
               (phoneRaw ? ` (${phoneRaw})` : "") +
               (service ? ` — ${service}` : "") +
               (when ? `, ${when}` : "") +
-              ` · via pinkpoodle.dog`
+              ` · via pinkpoodle.dog` +
+              (square_.bookingId ? ` · ✅ on Square calendar` : "")
           );
           texted = true;
         } catch (e) {
@@ -725,7 +938,16 @@ exports.pinkPoodleBook = onRequest(
       if (!emailed && !texted) {
         return res.status(502).json({ error: "Could not deliver right now. Please text 304-921-2748." });
       }
-      return res.json({ ok: true, delivered: true, emailed, texted });
+      return res.json({
+        ok: true,
+        delivered: true,
+        emailed,
+        texted,
+        square: {
+          customerSynced: !!square_.customerId,
+          booked: !!square_.bookingId,
+        },
+      });
     } catch (e) {
       console.error(e);
       return res.status(500).json({ error: e.message || "Booking failed." });

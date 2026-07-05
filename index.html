@@ -442,6 +442,13 @@
           <label for="prefDate">Preferred Day / Time</label>
           <input type="text" id="prefDate" name="prefDate" placeholder="This week, mornings" />
         </div>
+        <div class="field">
+          <label for="bookDate">Have an exact time in mind? <span style="font-weight:400;opacity:.7;">(optional)</span></label>
+          <div style="display:flex;gap:8px;">
+            <input type="date" id="bookDate" name="bookDate" style="flex:1;" />
+            <input type="time" id="bookTime" name="bookTime" style="flex:1;" />
+          </div>
+        </div>
         <div class="field field--full">
           <label for="notes">Anything else? (optional)</label>
           <textarea id="notes" name="notes" rows="2" placeholder="Sensitive skin, matting, special requests…"></textarea>

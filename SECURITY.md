@@ -32,8 +32,14 @@ than opening a public issue. We'll respond as quickly as we can.
 - **Passphrase reset:** a self-service reset emails a one-time, 30-minute link
   (SHA-256 hashed token, single-use) to the salon owner **and** a backup admin;
   reset requests are capped at 3 per IP per hour.
-- **Secrets** (SendGrid, Twilio, GitHub token, Facebook token, passphrase) are
-  stored in Google Secret Manager — never committed to the repo.
+- **Secrets** (SendGrid, Twilio, GitHub token, Facebook token, Square token,
+  passphrase) are stored in Google Secret Manager — never committed to the repo.
+- **Square integration:** the Square access token is a Secret Manager secret;
+  non-sensitive config (location, groomer, service IDs) lives in Firestore. The
+  integration is **fail-soft** — a Square error never blocks or exposes a
+  booking — and dormant until a real token is set (the `unset` sentinel keeps it
+  off). All Square calls go server-side only; the token is never sent to the
+  browser.
 
 ## Dependency & repository hygiene
 

@@ -21,12 +21,27 @@ When a visitor fills out the booking form and taps **Request My Appointment**, t
 1. Logs the request to Firestore (`pp_bookings`).
 2. **Emails the salon inbox** (`groomerbrit@yahoo.com`) via SendGrid — lands on Britni's phone as a notification instantly. The email has tap-to-text / tap-to-call buttons for the customer.
 3. **Texts Britni** at 304-921-2748 via Twilio — *auto-enables the moment real Twilio creds are set*. Today `TWILIO_FROM_NUMBER` is a placeholder, so SMS is skipped gracefully and email carries the request.
+4. **Syncs to Square Appointments** (when connected) — finds or creates the customer in her Square directory and, if an exact date/time is given and defaults are set, drops a pending appointment on her Square calendar to confirm. See below.
 
 This works from **any device, including desktop** (the old `sms:` deep-link only worked on phones). If the POST ever fails on a phone, it falls back to opening Messages pre-filled. A hidden `company` honeypot field blocks bots.
 
 - **Recipients / sender:** edit `BRITNI_SMS`, `OWNER_EMAIL`, `FROM_EMAIL` in `functions/index.js`. Endpoint URL lives in `BOOK_ENDPOINT` in `script.js`.
 - **To turn on real SMS to Britni:** set a live Twilio number/creds (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`) in Secret Manager and redeploy — no code change needed. (Texting the salon owner is a transactional alert; A2P 10DLC still applies to the Twilio number.)
 - **Transport is shared** with the Oracle functions in the same project (`SENDGRID_API_KEY` sender `oracle@barkparks.dog` is domain-verified).
+
+## Square Appointments sync 📅
+The booking form keeps its friendly "request a time" flow, but every request can also flow into Square:
+
+- **Customer sync** — the booker is found (by phone, then email) or created in Britni's Square customer directory, with the dog/breed saved as a note.
+- **Calendar booking** — if the visitor picks an exact date **and** time (the optional pickers under "Have an exact time in mind?"), *and* a default location + groomer + service are configured, a **pending appointment is created on her Square calendar** with a "please confirm" seller note. Free-text-only ("this week, mornings") requests still create/attach the customer and land in her email/SMS to schedule by hand.
+- **Fail-soft:** Square is best-effort. A Square outage or misconfig never blocks the email/SMS — the request always reaches Britni.
+
+**Turning it on** (Salon Console → **📅 Square** tab):
+1. Add the `SQUARE_ACCESS_TOKEN` secret (Britni's Square access token) and redeploy — until then the integration is dormant and everything else works unchanged.
+2. In the Square tab, click **Load from Square**, pick the **location**, **default groomer**, and **default service**, choose Production/Sandbox, and **Save**.
+3. Upcoming Square appointments show right in the console; toggle **Auto-add web bookings** to pause/resume calendar sync.
+
+Config lives in Firestore (`pp_settings/square`); only the token is a secret. Implementation is `functions/square.js` (raw Square REST v2 — no SDK dependency, keeping the 0-vuln posture). Admin actions: `squareStatus`, `squareConnect`, `squareSaveConfig`, `squareBookings`, `squareSyncCustomer`, `squareCreateBooking`.
 
 ## Photo upload portal 🖼️
 Britni can add photos to the website gallery herself — no code, no commits.
