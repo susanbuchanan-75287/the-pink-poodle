@@ -98,13 +98,14 @@ async function renderGallery() {
     const fig = document.createElement('figure');
     fig.className = 'gallery__item reveal' + (item.tall ? ' gallery__item--tall' : '') + (i >= INITIAL ? ' is-hidden' : '');
     const img = document.createElement('img');
-    img.src = item.src;
+    img.src = item.thumb || item.src;
+    img.dataset.full = item.src;
     img.alt = item.alt || item.caption || 'A freshly groomed pup at The Pink Poodle';
     if (item.w) img.width = item.w;
     if (item.h) img.height = item.h;
     img.loading = 'lazy';
     img.decoding = 'async';
-    img.addEventListener('click', () => openLightbox(img.src, img.alt));
+    img.addEventListener('click', () => openLightbox(img.dataset.full || img.src, img.alt));
     fig.appendChild(img);
     if (item.caption) {
       const cap = document.createElement('figcaption');

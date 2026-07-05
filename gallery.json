@@ -1,748 +1,870 @@
 [
-  {
-    "src": "assets/britni.jpg",
-    "caption": "Britni & the crew",
-    "tall": true,
-    "w": 960,
-    "h": 640
-  },
-  {
-    "src": "assets/paris.jpg",
-    "caption": "Paris, quality control",
-    "w": 1109,
-    "h": 1109
-  },
-  {
-    "src": "assets/gallery/addy.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Addy",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/bella.jpg",
-    "w": 1254,
-    "h": 2048,
-    "caption": "Bella",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/birdie.jpg",
-    "w": 1228,
-    "h": 2048,
-    "caption": "Birdie",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/cocoa.jpg",
-    "w": 1342,
-    "h": 2048,
-    "caption": "Cocoa",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/dapper.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Dapper",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/dexter.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Dexter",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/dixie.jpg",
-    "w": 1204,
-    "h": 2048,
-    "caption": "Dixie",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/elizabeth.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Elizabeth",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/harley.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Harley",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/holly.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Holly",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/honey.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Honey",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/honey2.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Honey",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/jack.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Jack",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/jillie.jpg",
-    "w": 1284,
-    "h": 1710,
-    "caption": "Jillie",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/kolby.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Kolby",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/luna.jpg",
-    "w": 1408,
-    "h": 2048,
-    "caption": "Luna",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/mellie.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Mellie",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/murphy.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Murphy",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/nash.jpg",
-    "w": 1178,
-    "h": 2048,
-    "caption": "Nash",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/nikki.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Nikki",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/peaches.jpg",
-    "w": 1284,
-    "h": 1998,
-    "caption": "Peaches",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/sadie-groomed-by-hannah.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Sadie \u00b7 by Hannah",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/sadie.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Sadie",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/skye.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Skye",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/sophie.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Sophie",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/theo.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Theo",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/zuk.jpg",
-    "w": 1536,
-    "h": 2048,
-    "caption": "Zuk",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/by-hannah.jpg",
-    "w": 1126,
-    "h": 2048,
-    "caption": "Groomed by Hannah",
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-498673059.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-503674251.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-504006166.jpg",
-    "w": 1284,
-    "h": 1950,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-507138926.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-507798798.jpg",
-    "w": 1026,
-    "h": 2280,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-508472755.jpg",
-    "w": 1099,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-508476737.jpg",
-    "w": 1110,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-508608630.jpg",
-    "w": 1105,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-508627878.jpg",
-    "w": 1284,
-    "h": 1704,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-508668216.jpg",
-    "w": 1284,
-    "h": 1428
-  },
-  {
-    "src": "assets/gallery/salon-508714871.jpg",
-    "w": 1078,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-508768508.jpg",
-    "w": 1284,
-    "h": 1686,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-508776660.jpg",
-    "w": 1284,
-    "h": 1962,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-508997092.jpg",
-    "w": 978,
-    "h": 2280,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-509442947.jpg",
-    "w": 1094,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-509443079.jpg",
-    "w": 1284,
-    "h": 1998,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-509520446.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-509599130.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-509640620.jpg",
-    "w": 1284,
-    "h": 1674,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-509676598.jpg",
-    "w": 1137,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-509714342.jpg",
-    "w": 1104,
-    "h": 2280,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-509737631.jpg",
-    "w": 1178,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-510213101.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-510382922.jpg",
-    "w": 1284,
-    "h": 1032
-  },
-  {
-    "src": "assets/gallery/salon-510596510.jpg",
-    "w": 1181,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-510979803.jpg",
-    "w": 1217,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-511002159.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-511020423.jpg",
-    "w": 1284,
-    "h": 1746,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-511218842.jpg",
-    "w": 1284,
-    "h": 2028,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-511267055.jpg",
-    "w": 1284,
-    "h": 2016,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-511273282.jpg",
-    "w": 1284,
-    "h": 2046,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-511273420.jpg",
-    "w": 1201,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-511577884.jpg",
-    "w": 1284,
-    "h": 1998,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-511727399.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-511942327.jpg",
-    "w": 1191,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-511988310.jpg",
-    "w": 1284,
-    "h": 1332
-  },
-  {
-    "src": "assets/gallery/salon-512654306.jpg",
-    "w": 1284,
-    "h": 1314
-  },
-  {
-    "src": "assets/gallery/salon-512692011.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-512697529.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-512714973.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-512731683.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-512736680.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-513049779.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-513939040.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-514248959.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-518276874.jpg",
-    "w": 1284,
-    "h": 1542,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-518279029.jpg",
-    "w": 1284,
-    "h": 1908,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-518350923.jpg",
-    "w": 1284,
-    "h": 1302
-  },
-  {
-    "src": "assets/gallery/salon-527671513.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-527852101.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-528224221.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-528785174.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-528823310.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-529148919.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-586040905.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-586370464.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-586514189.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-586536611.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-586550968.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-586581741.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-586672484.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-586997588.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-587240053.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-587402703.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-587551166.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-587748007.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-587771888.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-587783971.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-587861428.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-587882197.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-587917744.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-588485281.jpg",
-    "w": 720,
-    "h": 960,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-588576104.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-588704681.jpg",
-    "w": 1152,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-591990026.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-594044220.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-597759673.jpg",
-    "w": 2048,
-    "h": 2048
-  },
-  {
-    "src": "assets/gallery/salon-597760703.jpg",
-    "w": 2048,
-    "h": 2048
-  },
-  {
-    "src": "assets/gallery/salon-605141240.jpg",
-    "w": 2048,
-    "h": 2048
-  },
-  {
-    "src": "assets/gallery/salon-605256992.jpg",
-    "w": 2048,
-    "h": 2048
-  },
-  {
-    "src": "assets/gallery/salon-605622857.jpg",
-    "w": 2048,
-    "h": 2048
-  },
-  {
-    "src": "assets/gallery/salon-605629146.jpg",
-    "w": 2048,
-    "h": 2048
-  },
-  {
-    "src": "assets/gallery/salon-605635126.jpg",
-    "w": 2048,
-    "h": 2048
-  },
-  {
-    "src": "assets/gallery/salon-605647074.jpg",
-    "w": 2048,
-    "h": 2048
-  },
-  {
-    "src": "assets/gallery/salon-605827994.jpg",
-    "w": 2048,
-    "h": 2048
-  },
-  {
-    "src": "assets/gallery/salon-607727925.jpg",
-    "w": 2048,
-    "h": 2048
-  },
-  {
-    "src": "assets/gallery/salon-612007276.jpg",
-    "w": 426,
-    "h": 603,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-614595183.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-615422727.jpg",
-    "w": 1024,
-    "h": 1536,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-619755095.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-620079389.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  },
-  {
-    "src": "assets/gallery/salon-621747478.jpg",
-    "w": 1536,
-    "h": 2048,
-    "tall": true
-  }
+ {
+  "src": "assets/britni.webp",
+  "caption": "Britni & the crew",
+  "tall": true,
+  "w": 960,
+  "h": 640,
+  "thumb": "assets/thumbs/britni.webp"
+ },
+ {
+  "src": "assets/paris.webp",
+  "caption": "Paris, quality control",
+  "w": 1109,
+  "h": 1109,
+  "thumb": "assets/thumbs/paris.webp"
+ },
+ {
+  "src": "assets/gallery/addy.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Addy",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/addy.webp"
+ },
+ {
+  "src": "assets/gallery/bella.webp",
+  "w": 980,
+  "h": 1600,
+  "caption": "Bella",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/bella.webp"
+ },
+ {
+  "src": "assets/gallery/birdie.webp",
+  "w": 959,
+  "h": 1600,
+  "caption": "Birdie",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/birdie.webp"
+ },
+ {
+  "src": "assets/gallery/cocoa.webp",
+  "w": 1048,
+  "h": 1600,
+  "caption": "Cocoa",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/cocoa.webp"
+ },
+ {
+  "src": "assets/gallery/dapper.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Dapper",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/dapper.webp"
+ },
+ {
+  "src": "assets/gallery/dexter.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Dexter",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/dexter.webp"
+ },
+ {
+  "src": "assets/gallery/dixie.webp",
+  "w": 941,
+  "h": 1600,
+  "caption": "Dixie",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/dixie.webp"
+ },
+ {
+  "src": "assets/gallery/elizabeth.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Elizabeth",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/elizabeth.webp"
+ },
+ {
+  "src": "assets/gallery/harley.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Harley",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/harley.webp"
+ },
+ {
+  "src": "assets/gallery/holly.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Holly",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/holly.webp"
+ },
+ {
+  "src": "assets/gallery/honey.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Honey",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/honey.webp"
+ },
+ {
+  "src": "assets/gallery/honey2.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Honey",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/honey2.webp"
+ },
+ {
+  "src": "assets/gallery/jack.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Jack",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/jack.webp"
+ },
+ {
+  "src": "assets/gallery/jillie.webp",
+  "w": 1201,
+  "h": 1600,
+  "caption": "Jillie",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/jillie.webp"
+ },
+ {
+  "src": "assets/gallery/kolby.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Kolby",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/kolby.webp"
+ },
+ {
+  "src": "assets/gallery/luna.webp",
+  "w": 1100,
+  "h": 1600,
+  "caption": "Luna",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/luna.webp"
+ },
+ {
+  "src": "assets/gallery/mellie.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Mellie",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/mellie.webp"
+ },
+ {
+  "src": "assets/gallery/murphy.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Murphy",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/murphy.webp"
+ },
+ {
+  "src": "assets/gallery/nash.webp",
+  "w": 920,
+  "h": 1600,
+  "caption": "Nash",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/nash.webp"
+ },
+ {
+  "src": "assets/gallery/nikki.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Nikki",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/nikki.webp"
+ },
+ {
+  "src": "assets/gallery/peaches.webp",
+  "w": 1028,
+  "h": 1600,
+  "caption": "Peaches",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/peaches.webp"
+ },
+ {
+  "src": "assets/gallery/sadie-groomed-by-hannah.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Sadie · by Hannah",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/sadie-groomed-by-hannah.webp"
+ },
+ {
+  "src": "assets/gallery/sadie.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Sadie",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/sadie.webp"
+ },
+ {
+  "src": "assets/gallery/skye.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Skye",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/skye.webp"
+ },
+ {
+  "src": "assets/gallery/sophie.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Sophie",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/sophie.webp"
+ },
+ {
+  "src": "assets/gallery/theo.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Theo",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/theo.webp"
+ },
+ {
+  "src": "assets/gallery/zuk.webp",
+  "w": 1200,
+  "h": 1600,
+  "caption": "Zuk",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/zuk.webp"
+ },
+ {
+  "src": "assets/gallery/by-hannah.webp",
+  "w": 880,
+  "h": 1600,
+  "caption": "Groomed by Hannah",
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/by-hannah.webp"
+ },
+ {
+  "src": "assets/gallery/salon-498673059.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-498673059.webp"
+ },
+ {
+  "src": "assets/gallery/salon-503674251.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-503674251.webp"
+ },
+ {
+  "src": "assets/gallery/salon-504006166.webp",
+  "w": 1054,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-504006166.webp"
+ },
+ {
+  "src": "assets/gallery/salon-507138926.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-507138926.webp"
+ },
+ {
+  "src": "assets/gallery/salon-507798798.webp",
+  "w": 720,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-507798798.webp"
+ },
+ {
+  "src": "assets/gallery/salon-508472755.webp",
+  "w": 859,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-508472755.webp"
+ },
+ {
+  "src": "assets/gallery/salon-508476737.webp",
+  "w": 867,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-508476737.webp"
+ },
+ {
+  "src": "assets/gallery/salon-508608630.webp",
+  "w": 863,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-508608630.webp"
+ },
+ {
+  "src": "assets/gallery/salon-508627878.webp",
+  "w": 1206,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-508627878.webp"
+ },
+ {
+  "src": "assets/gallery/salon-508668216.webp",
+  "w": 1284,
+  "h": 1428,
+  "thumb": "assets/gallery/thumbs/salon-508668216.webp"
+ },
+ {
+  "src": "assets/gallery/salon-508714871.webp",
+  "w": 842,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-508714871.webp"
+ },
+ {
+  "src": "assets/gallery/salon-508768508.webp",
+  "w": 1219,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-508768508.webp"
+ },
+ {
+  "src": "assets/gallery/salon-508776660.webp",
+  "w": 1047,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-508776660.webp"
+ },
+ {
+  "src": "assets/gallery/salon-508997092.webp",
+  "w": 686,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-508997092.webp"
+ },
+ {
+  "src": "assets/gallery/salon-509442947.webp",
+  "w": 855,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-509442947.webp"
+ },
+ {
+  "src": "assets/gallery/salon-509443079.webp",
+  "w": 1028,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-509443079.webp"
+ },
+ {
+  "src": "assets/gallery/salon-509520446.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-509520446.webp"
+ },
+ {
+  "src": "assets/gallery/salon-509599130.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-509599130.webp"
+ },
+ {
+  "src": "assets/gallery/salon-509640620.webp",
+  "w": 1227,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-509640620.webp"
+ },
+ {
+  "src": "assets/gallery/salon-509676598.webp",
+  "w": 888,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-509676598.webp"
+ },
+ {
+  "src": "assets/gallery/salon-509714342.webp",
+  "w": 775,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-509714342.webp"
+ },
+ {
+  "src": "assets/gallery/salon-509737631.webp",
+  "w": 920,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-509737631.webp"
+ },
+ {
+  "src": "assets/gallery/salon-510213101.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-510213101.webp"
+ },
+ {
+  "src": "assets/gallery/salon-510382922.webp",
+  "w": 1284,
+  "h": 1032,
+  "thumb": "assets/gallery/thumbs/salon-510382922.webp"
+ },
+ {
+  "src": "assets/gallery/salon-510596510.webp",
+  "w": 923,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-510596510.webp"
+ },
+ {
+  "src": "assets/gallery/salon-510979803.webp",
+  "w": 951,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-510979803.webp"
+ },
+ {
+  "src": "assets/gallery/salon-511002159.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-511002159.webp"
+ },
+ {
+  "src": "assets/gallery/salon-511020423.webp",
+  "w": 1177,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-511020423.webp"
+ },
+ {
+  "src": "assets/gallery/salon-511218842.webp",
+  "w": 1013,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-511218842.webp"
+ },
+ {
+  "src": "assets/gallery/salon-511267055.webp",
+  "w": 1019,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-511267055.webp"
+ },
+ {
+  "src": "assets/gallery/salon-511273282.webp",
+  "w": 1004,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-511273282.webp"
+ },
+ {
+  "src": "assets/gallery/salon-511273420.webp",
+  "w": 938,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-511273420.webp"
+ },
+ {
+  "src": "assets/gallery/salon-511577884.webp",
+  "w": 1028,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-511577884.webp"
+ },
+ {
+  "src": "assets/gallery/salon-511727399.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-511727399.webp"
+ },
+ {
+  "src": "assets/gallery/salon-511942327.webp",
+  "w": 930,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-511942327.webp"
+ },
+ {
+  "src": "assets/gallery/salon-511988310.webp",
+  "w": 1284,
+  "h": 1332,
+  "thumb": "assets/gallery/thumbs/salon-511988310.webp"
+ },
+ {
+  "src": "assets/gallery/salon-512654306.webp",
+  "w": 1284,
+  "h": 1314,
+  "thumb": "assets/gallery/thumbs/salon-512654306.webp"
+ },
+ {
+  "src": "assets/gallery/salon-512692011.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-512692011.webp"
+ },
+ {
+  "src": "assets/gallery/salon-512697529.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-512697529.webp"
+ },
+ {
+  "src": "assets/gallery/salon-512714973.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-512714973.webp"
+ },
+ {
+  "src": "assets/gallery/salon-512731683.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-512731683.webp"
+ },
+ {
+  "src": "assets/gallery/salon-512736680.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-512736680.webp"
+ },
+ {
+  "src": "assets/gallery/salon-513049779.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-513049779.webp"
+ },
+ {
+  "src": "assets/gallery/salon-513939040.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-513939040.webp"
+ },
+ {
+  "src": "assets/gallery/salon-514248959.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-514248959.webp"
+ },
+ {
+  "src": "assets/gallery/salon-518276874.webp",
+  "w": 1284,
+  "h": 1542,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-518276874.webp"
+ },
+ {
+  "src": "assets/gallery/salon-518279029.webp",
+  "w": 1077,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-518279029.webp"
+ },
+ {
+  "src": "assets/gallery/salon-518350923.webp",
+  "w": 1284,
+  "h": 1302,
+  "thumb": "assets/gallery/thumbs/salon-518350923.webp"
+ },
+ {
+  "src": "assets/gallery/salon-527671513.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-527671513.webp"
+ },
+ {
+  "src": "assets/gallery/salon-527852101.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-527852101.webp"
+ },
+ {
+  "src": "assets/gallery/salon-528224221.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-528224221.webp"
+ },
+ {
+  "src": "assets/gallery/salon-528785174.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-528785174.webp"
+ },
+ {
+  "src": "assets/gallery/salon-528823310.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-528823310.webp"
+ },
+ {
+  "src": "assets/gallery/salon-529148919.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-529148919.webp"
+ },
+ {
+  "src": "assets/gallery/salon-586040905.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-586040905.webp"
+ },
+ {
+  "src": "assets/gallery/salon-586370464.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-586370464.webp"
+ },
+ {
+  "src": "assets/gallery/salon-586514189.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-586514189.webp"
+ },
+ {
+  "src": "assets/gallery/salon-586536611.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-586536611.webp"
+ },
+ {
+  "src": "assets/gallery/salon-586550968.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-586550968.webp"
+ },
+ {
+  "src": "assets/gallery/salon-586581741.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-586581741.webp"
+ },
+ {
+  "src": "assets/gallery/salon-586672484.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-586672484.webp"
+ },
+ {
+  "src": "assets/gallery/salon-586997588.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-586997588.webp"
+ },
+ {
+  "src": "assets/gallery/salon-587240053.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-587240053.webp"
+ },
+ {
+  "src": "assets/gallery/salon-587402703.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-587402703.webp"
+ },
+ {
+  "src": "assets/gallery/salon-587551166.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-587551166.webp"
+ },
+ {
+  "src": "assets/gallery/salon-587748007.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-587748007.webp"
+ },
+ {
+  "src": "assets/gallery/salon-587771888.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-587771888.webp"
+ },
+ {
+  "src": "assets/gallery/salon-587783971.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-587783971.webp"
+ },
+ {
+  "src": "assets/gallery/salon-587861428.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-587861428.webp"
+ },
+ {
+  "src": "assets/gallery/salon-587882197.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-587882197.webp"
+ },
+ {
+  "src": "assets/gallery/salon-587917744.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-587917744.webp"
+ },
+ {
+  "src": "assets/gallery/salon-588485281.webp",
+  "w": 720,
+  "h": 960,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-588485281.webp"
+ },
+ {
+  "src": "assets/gallery/salon-588576104.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-588576104.webp"
+ },
+ {
+  "src": "assets/gallery/salon-588704681.webp",
+  "w": 900,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-588704681.webp"
+ },
+ {
+  "src": "assets/gallery/salon-591990026.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-591990026.webp"
+ },
+ {
+  "src": "assets/gallery/salon-594044220.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-594044220.webp"
+ },
+ {
+  "src": "assets/gallery/salon-597759673.webp",
+  "w": 1600,
+  "h": 1600,
+  "thumb": "assets/gallery/thumbs/salon-597759673.webp"
+ },
+ {
+  "src": "assets/gallery/salon-597760703.webp",
+  "w": 1600,
+  "h": 1600,
+  "thumb": "assets/gallery/thumbs/salon-597760703.webp"
+ },
+ {
+  "src": "assets/gallery/salon-605141240.webp",
+  "w": 1600,
+  "h": 1600,
+  "thumb": "assets/gallery/thumbs/salon-605141240.webp"
+ },
+ {
+  "src": "assets/gallery/salon-605256992.webp",
+  "w": 1600,
+  "h": 1600,
+  "thumb": "assets/gallery/thumbs/salon-605256992.webp"
+ },
+ {
+  "src": "assets/gallery/salon-605622857.webp",
+  "w": 1600,
+  "h": 1600,
+  "thumb": "assets/gallery/thumbs/salon-605622857.webp"
+ },
+ {
+  "src": "assets/gallery/salon-605629146.webp",
+  "w": 1600,
+  "h": 1600,
+  "thumb": "assets/gallery/thumbs/salon-605629146.webp"
+ },
+ {
+  "src": "assets/gallery/salon-605635126.webp",
+  "w": 1600,
+  "h": 1600,
+  "thumb": "assets/gallery/thumbs/salon-605635126.webp"
+ },
+ {
+  "src": "assets/gallery/salon-605647074.webp",
+  "w": 1600,
+  "h": 1600,
+  "thumb": "assets/gallery/thumbs/salon-605647074.webp"
+ },
+ {
+  "src": "assets/gallery/salon-605827994.webp",
+  "w": 1600,
+  "h": 1600,
+  "thumb": "assets/gallery/thumbs/salon-605827994.webp"
+ },
+ {
+  "src": "assets/gallery/salon-607727925.webp",
+  "w": 1600,
+  "h": 1600,
+  "thumb": "assets/gallery/thumbs/salon-607727925.webp"
+ },
+ {
+  "src": "assets/gallery/salon-612007276.webp",
+  "w": 426,
+  "h": 603,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-612007276.webp"
+ },
+ {
+  "src": "assets/gallery/salon-614595183.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-614595183.webp"
+ },
+ {
+  "src": "assets/gallery/salon-615422727.webp",
+  "w": 1024,
+  "h": 1536,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-615422727.webp"
+ },
+ {
+  "src": "assets/gallery/salon-619755095.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-619755095.webp"
+ },
+ {
+  "src": "assets/gallery/salon-620079389.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-620079389.webp"
+ },
+ {
+  "src": "assets/gallery/salon-621747478.webp",
+  "w": 1200,
+  "h": 1600,
+  "tall": true,
+  "thumb": "assets/gallery/thumbs/salon-621747478.webp"
+ }
 ]
