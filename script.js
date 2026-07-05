@@ -93,15 +93,17 @@ async function renderGallery() {
   if (!Array.isArray(items) || !items.length) return;
 
   grid.innerHTML = '';
+  const INITIAL = 24;
   items.forEach((item, i) => {
     const fig = document.createElement('figure');
-    fig.className = 'gallery__item reveal' + (item.tall ? ' gallery__item--tall' : '');
+    fig.className = 'gallery__item reveal' + (item.tall ? ' gallery__item--tall' : '') + (i >= INITIAL ? ' is-hidden' : '');
     const img = document.createElement('img');
     img.src = item.src;
     img.alt = item.alt || item.caption || 'A freshly groomed pup at The Pink Poodle';
     if (item.w) img.width = item.w;
     if (item.h) img.height = item.h;
     img.loading = 'lazy';
+    img.decoding = 'async';
     img.addEventListener('click', () => openLightbox(img.src, img.alt));
     fig.appendChild(img);
     if (item.caption) {
@@ -113,6 +115,29 @@ async function renderGallery() {
     if (window.__revealObserver) window.__revealObserver.observe(fig);
     else fig.classList.add('in');
   });
+
+  if (items.length > INITIAL) {
+    const wrap = document.createElement('div');
+    wrap.className = 'gallery__more-wrap';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn--soft';
+    btn.textContent = `View all ${items.length} photos`;
+    const count = document.createElement('p');
+    count.className = 'gallery__count';
+    count.textContent = `Showing ${INITIAL} of ${items.length}`;
+    btn.addEventListener('click', () => {
+      grid.querySelectorAll('.gallery__item.is-hidden').forEach((el) => {
+        el.classList.remove('is-hidden');
+        if (window.__revealObserver) window.__revealObserver.observe(el);
+        else el.classList.add('in');
+      });
+      wrap.remove();
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(count);
+    grid.after(wrap);
+  }
 }
 
 // ===== Reveal on scroll =====

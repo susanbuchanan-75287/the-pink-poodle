@@ -209,16 +209,26 @@ a { color: inherit; text-decoration: none; }
 .team__actions .btn { padding: 0.7rem 1.35rem; font-size: 0.82rem; }
 .team__phone { color: var(--ink-soft); font-size: 0.86rem; letter-spacing: 0.03em; }
 
-/* ===== Gallery ===== */
-.gallery__grid { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 220px; gap: 1.2rem; }
-.gallery__item { position: relative; overflow: hidden; border-radius: var(--radius); box-shadow: var(--shadow-sm); cursor: pointer; margin: 0; }
-.gallery__item--tall { grid-row: span 2; }
-.gallery__item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.7s cubic-bezier(.2,.8,.2,1); }
-.gallery__item::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 50%, rgba(58,34,48,0.72)); opacity: 0; transition: opacity 0.4s ease; }
-.gallery__item figcaption { position: absolute; left: 1.1rem; bottom: 0.9rem; z-index: 2; color: #fff; font-family: var(--display); font-style: italic; font-size: 1.15rem; letter-spacing: 0.01em; transform: translateY(8px); opacity: 0; transition: transform 0.4s ease, opacity 0.4s ease; text-shadow: 0 2px 10px rgba(0,0,0,0.4); }
-.gallery__item:hover img { transform: scale(1.09); }
-.gallery__item:hover::after { opacity: 1; }
-.gallery__item:hover figcaption { transform: none; opacity: 1; }
+/* ===== Gallery — gilded frame masonry ===== */
+.gallery__grid { column-count: 4; column-gap: 1.5rem; }
+.gallery__item {
+  break-inside: avoid; margin: 0 0 1.5rem; cursor: pointer; position: relative;
+  background: #fff; padding: 12px;
+  border: 7px solid transparent;
+  border-image: linear-gradient(135deg, #f7e7c4, #c9a24b 42%, #a9772a 55%, #f1ddab 92%) 1;
+  box-shadow: var(--shadow);
+  transition: transform 0.45s cubic-bezier(.2,.8,.2,1), box-shadow 0.45s ease;
+}
+.gallery__item img { display: block; width: 100%; height: auto; }
+.gallery__item figcaption {
+  text-align: center; font-family: var(--display); font-style: italic;
+  color: var(--pink-deep); font-size: 1.18rem; letter-spacing: 0.01em; margin-top: 0.65rem;
+}
+.gallery__item:nth-child(even) { transform: rotate(0.5deg); }
+.gallery__item:hover { transform: translateY(-7px) rotate(-0.6deg); box-shadow: 0 26px 54px rgba(58,34,48,0.24); z-index: 2; }
+.gallery__item.is-hidden { display: none; }
+.gallery__more-wrap { text-align: center; margin-top: 2.6rem; }
+.gallery__count { color: var(--ink-soft); font-size: 0.9rem; margin-top: 1rem; }
 
 /* ===== Reviews ===== */
 .reviews { background: linear-gradient(180deg, var(--cream), var(--blush)); max-width: none; }
@@ -303,8 +313,7 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 900px) {
   .cards { grid-template-columns: 1fr 1fr; }
   .team__grid { grid-template-columns: 1fr 1fr; }
-  .gallery__grid { grid-template-columns: 1fr 1fr; grid-auto-rows: 200px; }
-  .gallery__item--tall { grid-row: span 2; }
+  .gallery__grid { column-count: 3; }
   .reviews__grid { grid-template-columns: 1fr; }
   .about__grid, .book__inner, .visit__grid { grid-template-columns: 1fr; gap: 2.5rem; }
   .about__media { max-width: 420px; margin: 0 auto; }
@@ -329,7 +338,7 @@ a { color: inherit; text-decoration: none; }
   .section { padding: 4.5rem 1.2rem; }
   .cards { grid-template-columns: 1fr; }
   .team__grid { grid-template-columns: 1fr; }
-  .gallery__grid { grid-auto-rows: 180px; }
+  .gallery__grid { column-count: 2; }
   .hero__content { padding: 5rem 1.2rem 4rem; }
   .hero__badges { gap: 1rem; }
   .hero__cta { flex-direction: column; align-items: stretch; }
@@ -340,8 +349,7 @@ a { color: inherit; text-decoration: none; }
 /* Small phones */
 @media (max-width: 400px) {
   .hero__badges { flex-direction: column; gap: 0.6rem; }
-  .gallery__grid { grid-template-columns: 1fr; grid-auto-rows: 260px; }
-  .gallery__item--tall { grid-row: span 1; }
+  .gallery__grid { column-count: 1; }
   .brand__text { font-size: 1.05rem; }
   .lead { font-size: 1.2rem; }
 }
