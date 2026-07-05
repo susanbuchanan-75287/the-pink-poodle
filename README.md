@@ -16,17 +16,25 @@ Static, single-page site (no build step). Just HTML, CSS, and vanilla JS — fas
 | `CNAME` | Custom domain for GitHub Pages (`pinkpoodle.dog`) |
 
 ## Booking → text notification
-The booking form on the site does **not** need a server. When a visitor fills it out and taps **Send Booking Text**, their phone opens Messages with a pre-filled text (name, dog, breed, service, preferred time) addressed to **304-921-2748** — so the appointment request arrives on Britni's phone as a normal SMS. Click-to-call and email links are provided as fallbacks.
+When a visitor fills out the booking form and taps **Request My Appointment**, the form POSTs to the `pinkPoodleBook` Firebase Function, which:
 
-To change the phone number, edit `SALON_PHONE` in `script.js`.
+1. Logs the request to Firestore (`pp_bookings`).
+2. **Emails the salon inbox** (`groomerbrit@yahoo.com`) via SendGrid — lands on Britni's phone as a notification instantly. The email has tap-to-text / tap-to-call buttons for the customer.
+3. **Texts Britni** at 304-921-2748 via Twilio — *auto-enables the moment real Twilio creds are set*. Today `TWILIO_FROM_NUMBER` is a placeholder, so SMS is skipped gracefully and email carries the request.
+
+This works from **any device, including desktop** (the old `sms:` deep-link only worked on phones). If the POST ever fails on a phone, it falls back to opening Messages pre-filled. A hidden `company` honeypot field blocks bots.
+
+- **Recipients / sender:** edit `BRITNI_SMS`, `OWNER_EMAIL`, `FROM_EMAIL` in `functions/index.js`. Endpoint URL lives in `BOOK_ENDPOINT` in `script.js`.
+- **To turn on real SMS to Britni:** set a live Twilio number/creds (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`) in Secret Manager and redeploy — no code change needed. (Texting the salon owner is a transactional alert; A2P 10DLC still applies to the Twilio number.)
+- **Transport is shared** with the Oracle functions in the same project (`SENDGRID_API_KEY` sender `oracle@barkparks.dog` is domain-verified).
 
 ## Photo upload portal 🖼️
 Britni can add photos to the website gallery herself — no code, no commits.
 
 - **Portal:** `admin.html` (link: `https://pinkpoodle.dog/admin.html`) — not indexed by search engines. This is now the full **Salon Console** (see below).
 - **How it works:** she enters the admin passphrase, picks a photo, adds the dog's name/breed, and taps **Upload**. A Firebase Function commits the image into `assets/gallery/` and prepends it to `gallery.json`; GitHub Pages rebuilds and the photo appears on the site in about a minute. The gallery on `index.html` renders dynamically from `gallery.json`.
-- **Backend:** Firebase Functions `pinkPoodleUpload` (legacy) and `pinkPoodleApi` (console) — project `binditails-da2de`, codebase `pinkpoodle`, region `us-central1`. Source in `functions/index.js`.
-- **Secrets (Firebase Secret Manager):** `GH_TOKEN` (repo commit), `PP_ADMIN_KEY` (portal passphrase), `PP_FB_PAGE_ID` + `PP_FB_PAGE_TOKEN` (Facebook — placeholder `unset` until enabled).
+- **Backend:** Firebase Functions `pinkPoodleUpload` (legacy), `pinkPoodleApi` (console), and `pinkPoodleBook` (public booking) — project `binditails-da2de`, codebase `pinkpoodle`, region `us-central1`. Source in `functions/index.js`.
+- **Secrets (Firebase Secret Manager):** `GH_TOKEN` (repo commit), `PP_ADMIN_KEY` (portal passphrase), `PP_FB_PAGE_ID` + `PP_FB_PAGE_TOKEN` (Facebook — placeholder `unset` until enabled), and the shared `SENDGRID_API_KEY` / `TWILIO_*` transport used by `pinkPoodleBook`.
 
 ## Salon Console 🩷 (admin.html)
 A tabbed, phone-friendly operations console behind the same passphrase. Backend: `pinkPoodleApi` + Firestore (collections `pp_customers`, `pp_settings`, `pp_messages`) in project `binditails-da2de`.
