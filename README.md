@@ -20,6 +20,42 @@ The booking form on the site does **not** need a server. When a visitor fills it
 
 To change the phone number, edit `SALON_PHONE` in `script.js`.
 
+## Photo upload portal 🖼️
+Britni can add photos to the website gallery herself — no code, no commits.
+
+- **Portal:** `admin.html` (link: `https://pinkpoodle.dog/admin.html`) — not indexed by search engines.
+- **How it works:** she enters the admin passphrase, picks a photo + caption, and taps **Upload**. A Firebase Function commits the image into `assets/gallery/` and prepends it to `gallery.json`; GitHub Pages rebuilds and the photo appears on the site in about a minute. The gallery on `index.html` renders dynamically from `gallery.json`.
+- **Backend:** Firebase Function `pinkPoodleUpload` (project `binditails-da2de`, codebase `pinkpoodle`, region `us-central1`). Source in `functions/index.js`.
+- **Secrets (Firebase Secret Manager):** `GH_TOKEN` (repo commit), `PP_ADMIN_KEY` (portal passphrase), `PP_FB_PAGE_ID` + `PP_FB_PAGE_TOKEN` (Facebook — placeholder `unset` until enabled).
+
+### Deploy / update the function
+```
+cd functions && npm install
+firebase deploy --only functions:pinkpoodle --project binditails-da2de
+```
+
+### Change the admin passphrase
+```
+"new-passphrase" | firebase functions:secrets:set PP_ADMIN_KEY --project binditails-da2de --data-file=- --force
+firebase deploy --only functions:pinkpoodle --project binditails-da2de
+```
+
+### Security note
+The fire test used the CLI's GitHub OAuth token for `GH_TOKEN`. For production, replace it with a **fine-grained PAT** scoped to only this repo's *Contents: read & write*, then re-set `GH_TOKEN` and redeploy.
+
+## Enabling Facebook auto-posting (later)
+The code is already written (`functions/index.js`, guarded by the FB secrets). To turn it on:
+1. Create an app at **developers.facebook.com** → add the **Facebook Login** and **Pages** products.
+2. Request permissions **`pages_manage_posts`** and **`pages_read_engagement`** (requires Meta App Review for public use).
+3. Generate a **long-lived Page access token** for The Pink Poodle page and note the **Page ID**.
+4. Store them and redeploy:
+   ```
+   "<PAGE_ID>"    | firebase functions:secrets:set PP_FB_PAGE_ID    --project binditails-da2de --data-file=- --force
+   "<PAGE_TOKEN>" | firebase functions:secrets:set PP_FB_PAGE_TOKEN --project binditails-da2de --data-file=- --force
+   firebase deploy --only functions:pinkpoodle --project binditails-da2de
+   ```
+5. In `admin.html`, remove the `disabled` attribute on the "Also post to the Facebook page" checkbox.
+
 ## SEO
 The site is optimized for local search ("dog grooming Princeton WV" and similar):
 - Descriptive title, meta description & keywords, canonical URL, and `robots` directives
