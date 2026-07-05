@@ -6,7 +6,8 @@
     "node": "20"
   },
   "dependencies": {
-    "firebase-functions": "^5.1.1"
+    "firebase-functions": "^5.1.1",
+    "firebase-admin": "^12.6.0"
   },
   "private": true
 }

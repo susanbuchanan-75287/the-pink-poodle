@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Admin · Upload a Photo · The Pink Poodle</title>
+  <title>Salon Console · The Pink Poodle</title>
   <meta name="robots" content="noindex, nofollow" />
   <meta name="theme-color" content="#e75a9c" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -13,70 +13,242 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%A9%3C/text%3E%3C/svg%3E" />
   <style>
     body { background: radial-gradient(circle at 20% 0%, #fff, var(--blush)); min-height: 100vh; }
-    .admin { max-width: 620px; margin: 0 auto; padding: 3rem 1.3rem 5rem; }
-    .admin__head { text-align: center; margin-bottom: 2rem; }
-    .admin__head .brand { justify-content: center; font-size: 1.7rem; margin-bottom: 0.6rem; }
-    .admin__head .script { color: var(--pink); font-size: 2rem; }
-    .admin__card { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 2rem; }
-    .admin__card + .admin__card { margin-top: 1.4rem; }
-    .drop {
-      border: 2px dashed var(--pink-soft); border-radius: 16px; padding: 2.2rem 1rem; text-align: center;
-      color: var(--ink-soft); cursor: pointer; transition: border-color .2s, background .2s;
+    .admin { max-width: 860px; margin: 0 auto; padding: 2.4rem 1.1rem 5rem; }
+    .admin__head { text-align: center; margin-bottom: 1.4rem; }
+    .admin__head .brand { justify-content: center; font-size: 1.6rem; margin-bottom: 0.3rem; }
+    .admin__head .script { color: var(--pink); font-size: 1.9rem; }
+    .card { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.8rem; }
+    .card + .card { margin-top: 1.3rem; }
+    .hidden { display: none !important; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; margin-bottom: 1.4rem; }
+    .tab {
+      border: 1.5px solid rgba(226,124,163,0.4); background: #fff; color: var(--pink-deep);
+      padding: 0.6rem 1.2rem; border-radius: 100px; font-family: var(--sans); font-weight: 600;
+      font-size: 0.86rem; cursor: pointer; transition: all .25s ease;
     }
+    .tab.active { background: linear-gradient(135deg, var(--pink), var(--pink-deep)); color: #fff; border-color: transparent; box-shadow: var(--shadow-sm); }
+
+    /* Fields */
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); margin-bottom: 0.35rem; }
+    .field input, .field textarea, .field select {
+      width: 100%; font-size: 16px; font-family: var(--sans); padding: 0.8rem 0.9rem;
+      border: 1.5px solid #efd7e3; border-radius: 12px; background: #fffafc; color: var(--ink);
+    }
+    .field textarea { min-height: 84px; resize: vertical; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+    .inline { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+    .muted { color: var(--ink-soft); font-size: 0.85rem; }
+
+    /* Drop zone */
+    .drop { border: 2px dashed var(--pink-soft); border-radius: 16px; padding: 1.8rem 1rem; text-align: center; color: var(--ink-soft); cursor: pointer; transition: border-color .2s, background .2s; }
     .drop:hover, .drop.drag { border-color: var(--pink); background: var(--blush); }
     .drop strong { color: var(--pink-deep); }
-    .preview { margin-top: 1rem; display: none; }
-    .preview img { width: 100%; border-radius: 14px; box-shadow: var(--shadow-sm); max-height: 320px; object-fit: cover; }
-    .toggle { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; color: var(--ink-soft); font-size: 0.92rem; }
+    .preview { margin-top: 0.9rem; display: none; }
+    .preview img { width: 100%; border-radius: 14px; box-shadow: var(--shadow-sm); max-height: 300px; object-fit: cover; }
+    .toggle { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; color: var(--ink-soft); font-size: 0.9rem; }
     .toggle input { width: 20px; height: 20px; accent-color: var(--pink); }
-    .soon { font-size: 0.72rem; background: var(--pink-soft); color: var(--pink-deep); padding: 0.1rem 0.5rem; border-radius: 100px; font-weight: 600; }
-    .status { margin-top: 1.2rem; padding: 1rem 1.1rem; border-radius: 12px; font-size: 0.92rem; display: none; }
+    .soon { font-size: 0.68rem; background: var(--pink-soft); color: var(--pink-deep); padding: 0.1rem 0.5rem; border-radius: 100px; font-weight: 600; }
+
+    /* Gallery manage grid */
+    .ggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.8rem; margin-top: 1.2rem; }
+    .gtile { position: relative; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-sm); background: #f6e9d6; padding: 6px; border: 3px solid transparent; border-image: linear-gradient(135deg,#f7e7c4,#c9a24b 50%,#a9772a) 1; }
+    .gtile img { width: 100%; height: 110px; object-fit: cover; display: block; }
+    .gtile figcaption { font-size: 0.72rem; text-align: center; padding: 0.3rem 0.1rem 0.1rem; color: var(--pink-deep); font-family: var(--display); font-style: italic; }
+    .gtile .del { position: absolute; top: 8px; right: 8px; background: rgba(179,36,59,0.92); color: #fff; border: none; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 15px; box-shadow: var(--shadow-sm); }
+
+    /* Customer cards */
+    .cust { border: 1px solid #f1dde7; border-radius: 16px; padding: 1.1rem 1.2rem; margin-bottom: 0.9rem; background: #fffdfe; }
+    .cust__top { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.6rem; }
+    .cust__name { font-family: var(--serif); font-weight: 600; font-size: 1.18rem; color: var(--ink); }
+    .cust__contact { font-size: 0.86rem; color: var(--ink-soft); margin-top: 0.15rem; }
+    .cust__contact a { color: var(--pink); }
+    .chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.6rem; }
+    .chip { background: var(--blush); color: var(--pink-deep); font-size: 0.76rem; padding: 0.25rem 0.7rem; border-radius: 100px; font-weight: 600; }
+    .bal { font-size: 0.8rem; font-weight: 600; }
+    .bal--owed { color: #b3243b; }
+    .bal--clear { color: #1c7a48; }
+    .cust__actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.9rem; }
+    .mini { border: 1.5px solid rgba(226,124,163,0.4); background: #fff; color: var(--pink-deep); padding: 0.42rem 0.8rem; border-radius: 100px; font-size: 0.78rem; font-weight: 600; cursor: pointer; font-family: var(--sans); }
+    .mini:hover { background: var(--pink); color: #fff; border-color: var(--pink); }
+    .mini--danger { color: #b3243b; border-color: #f0bcc6; }
+    .mini--danger:hover { background: #b3243b; color: #fff; border-color: #b3243b; }
+
+    .dogrow { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .dogrow .mini { padding: 0.5rem 0.7rem; }
+    .note { background: #fbeef4; border-radius: 10px; padding: 0.5rem 0.7rem; font-size: 0.82rem; margin-bottom: 0.4rem; }
+    .note small { color: var(--ink-soft); display: block; font-size: 0.68rem; }
+
+    /* Modal */
+    .modal { position: fixed; inset: 0; background: rgba(58,34,48,0.55); display: none; align-items: center; justify-content: center; padding: 1rem; z-index: 100; }
+    .modal.open { display: flex; }
+    .modal__box { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto; padding: 1.6rem; }
+    .modal__box h3 { font-family: var(--serif); font-size: 1.4rem; margin-bottom: 0.9rem; color: var(--ink); }
+
+    .status { margin-top: 1rem; padding: 0.9rem 1rem; border-radius: 12px; font-size: 0.9rem; display: none; }
     .status.show { display: block; }
     .status.info { background: var(--blush); color: var(--pink-deep); }
     .status.ok { background: #eafaf0; color: #1c7a48; }
     .status.err { background: #fdecef; color: #b3243b; }
     .btn[disabled] { opacity: 0.55; cursor: not-allowed; transform: none !important; }
-    .admin__foot { text-align: center; margin-top: 1.6rem; font-size: 0.85rem; }
-    .admin__foot a { color: var(--pink); }
     .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.5); border-top-color: #fff; border-radius: 50%; animation: sp .7s linear infinite; vertical-align: middle; margin-right: 6px; }
     @keyframes sp { to { transform: rotate(360deg); } }
+    .admin__foot { text-align: center; margin-top: 1.6rem; font-size: 0.85rem; }
+    .admin__foot a { color: var(--pink); }
+    @media (max-width: 520px) { .row2 { grid-template-columns: 1fr; } .dogrow { grid-template-columns: 1fr 1fr; } }
   </style>
 </head>
 <body>
   <main class="admin">
     <div class="admin__head">
       <div class="brand"><span class="brand__mark">🐩</span><span class="brand__text">The Pink Poodle</span></div>
-      <p class="script">Add a photo</p>
+      <p class="script">Salon Console</p>
     </div>
 
-    <form class="admin__card" id="uploadForm" novalidate>
-      <div class="field field--full">
+    <!-- Login gate -->
+    <form class="card" id="loginCard">
+      <div class="field">
         <label for="adminKey">Admin passphrase</label>
         <input type="password" id="adminKey" autocomplete="current-password" placeholder="Enter your passphrase" required />
       </div>
-
-      <label class="drop" id="drop" for="photo">
-        <div id="dropText">📷 <strong>Tap to choose a photo</strong><br />or drag &amp; drop it here</div>
-        <input type="file" id="photo" accept="image/*" hidden />
-      </label>
-      <div class="preview" id="preview"><img id="previewImg" alt="Preview" /></div>
-
-      <div class="field field--full" style="margin-top:1rem">
-        <label for="caption">Caption (shows on the website gallery)</label>
-        <input type="text" id="caption" maxlength="80" placeholder="e.g. Fresh spring groom 🌸" />
-      </div>
-
-      <label class="toggle">
-        <input type="checkbox" id="toFacebook" disabled />
-        Also post to the Facebook page <span class="soon">Coming soon</span>
-      </label>
-
-      <button type="submit" class="btn btn--primary btn--block" id="submitBtn" style="margin-top:1.4rem">Upload to Gallery</button>
-      <div class="status" id="status"></div>
+      <label class="toggle"><input type="checkbox" id="remember" checked /> Keep me signed in on this phone</label>
+      <button type="submit" class="btn btn--primary btn--block" style="margin-top:1rem">Unlock Console 🔑</button>
+      <div class="status" id="loginStatus"></div>
     </form>
 
-    <p class="admin__foot"><a href="index.html">← Back to the website</a></p>
+    <!-- Console -->
+    <div id="console" class="hidden">
+      <div class="tabs">
+        <button class="tab active" data-tab="gallery">📷 Gallery</button>
+        <button class="tab" data-tab="customers">🐾 Customers</button>
+        <button class="tab" data-tab="messages">💬 Messages</button>
+        <button class="tab" data-tab="settings">⚙️ Settings</button>
+      </div>
+
+      <!-- GALLERY -->
+      <section data-panel="gallery">
+        <form class="card" id="uploadForm">
+          <h3 style="font-family:var(--serif);margin-bottom:.8rem">Add a photo</h3>
+          <label class="drop" id="drop" for="photo">
+            <div id="dropText">📷 <strong>Tap to choose a photo</strong><br />or drag &amp; drop it here</div>
+            <input type="file" id="photo" accept="image/*" hidden />
+          </label>
+          <div class="preview" id="preview"><img id="previewImg" alt="Preview" /></div>
+          <div class="row2" style="margin-top:1rem">
+            <div class="field"><label for="dogName">Dog's name</label><input type="text" id="dogName" maxlength="60" placeholder="e.g. Bella" /></div>
+            <div class="field"><label for="breed">Breed</label><input type="text" id="breed" maxlength="60" placeholder="e.g. Goldendoodle" /></div>
+          </div>
+          <div class="field"><label for="caption">Caption <span class="muted">(optional — defaults to name · breed)</span></label><input type="text" id="caption" maxlength="80" placeholder="e.g. Fresh spring groom 🌸" /></div>
+          <label class="toggle"><input type="checkbox" id="toFacebook" disabled /> Also post to Facebook <span class="soon">Coming soon</span></label>
+          <button type="submit" class="btn btn--primary btn--block" id="uploadBtn" style="margin-top:1.1rem">Upload to Gallery</button>
+          <div class="status" id="uploadStatus"></div>
+        </form>
+
+        <div class="card">
+          <div class="inline" style="justify-content:space-between;align-items:center">
+            <h3 style="font-family:var(--serif)">Current photos</h3>
+            <button class="mini" id="reloadGallery">↻ Refresh</button>
+          </div>
+          <div class="ggrid" id="galleryManage"><p class="muted">Loading…</p></div>
+        </div>
+      </section>
+
+      <!-- CUSTOMERS -->
+      <section data-panel="customers" class="hidden">
+        <div class="card">
+          <div class="inline" style="justify-content:space-between;align-items:center;margin-bottom:.9rem">
+            <h3 style="font-family:var(--serif)">Customers &amp; Pups</h3>
+            <button class="btn btn--primary" id="newCustomer" style="padding:.55rem 1.1rem;font-size:.82rem">＋ New</button>
+          </div>
+          <div class="field"><input type="search" id="custSearch" placeholder="🔍 Search by name, phone, or dog…" /></div>
+          <div id="custList"><p class="muted">Loading…</p></div>
+        </div>
+      </section>
+
+      <!-- MESSAGES -->
+      <section data-panel="messages" class="hidden">
+        <div class="card">
+          <h3 style="font-family:var(--serif);margin-bottom:.6rem">Promo blast</h3>
+          <p class="muted" style="margin-bottom:.8rem">Email everyone at once (opens your Mail app with all addresses hidden in BCC). For texts, use the 🎀 Promo button on each customer.</p>
+          <div class="field"><textarea id="blastBody" placeholder="Your promo message…"></textarea></div>
+          <button class="btn btn--primary" id="blastEmail">✉️ Open Email to All</button>
+          <div class="status" id="blastStatus"></div>
+        </div>
+        <div class="card">
+          <div class="inline" style="justify-content:space-between;align-items:center">
+            <h3 style="font-family:var(--serif)">Recent messages</h3>
+            <button class="mini" id="reloadHistory">↻ Refresh</button>
+          </div>
+          <div id="historyList"><p class="muted">Loading…</p></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section data-panel="settings" class="hidden">
+        <form class="card" id="settingsForm">
+          <h3 style="font-family:var(--serif);margin-bottom:.8rem">Payment &amp; message templates</h3>
+          <div class="row2">
+            <div class="field"><label for="payType">Payment method</label>
+              <select id="payType"><option value="">— choose —</option><option>Venmo</option><option>CashApp</option><option>PayPal</option><option>Zelle</option><option>Square</option><option>Cash/Card in salon</option></select>
+            </div>
+            <div class="field"><label for="payHandle">Handle / link</label><input type="text" id="payHandle" placeholder="@brit-grooming or link" /></div>
+          </div>
+          <div class="field"><label for="payNote">Payment note</label><input type="text" id="payNote" placeholder="e.g. Please include your pup's name" /></div>
+          <p class="muted" style="margin:.4rem 0 1rem">Placeholders you can use: <strong>{name} {dog} {amount} {handle} {paytype} {salon}</strong></p>
+          <div class="field"><label for="pickupTemplate">"Ready for pickup" text</label><textarea id="pickupTemplate"></textarea></div>
+          <div class="field"><label for="promoTemplate">Promo text/email</label><textarea id="promoTemplate"></textarea></div>
+          <div class="field"><label for="invoiceTemplate">Invoice / payment notice</label><textarea id="invoiceTemplate"></textarea></div>
+          <button type="submit" class="btn btn--primary btn--block" id="settingsBtn">Save Settings</button>
+          <div class="status" id="settingsStatus"></div>
+        </form>
+      </section>
+    </div>
+
+    <p class="admin__foot"><a href="index.html">← Back to the website</a> · <a href="#" id="logout">Sign out</a></p>
   </main>
+
+  <!-- Customer editor modal -->
+  <div class="modal" id="custModal">
+    <div class="modal__box">
+      <h3 id="custModalTitle">New customer</h3>
+      <input type="hidden" id="cId" />
+      <div class="field"><label>Name</label><input type="text" id="cName" placeholder="Customer name" /></div>
+      <div class="row2">
+        <div class="field"><label>Phone</label><input type="tel" id="cPhone" placeholder="304-555-1234" /></div>
+        <div class="field"><label>Email</label><input type="email" id="cEmail" placeholder="name@email.com" /></div>
+      </div>
+      <div class="field"><label>Address</label><input type="text" id="cAddress" placeholder="Optional" /></div>
+      <div class="field"><label>Dogs</label><div id="dogRows"></div><button class="mini" id="addDog" type="button">＋ Add dog</button></div>
+      <div class="field"><label>Notes / history</label><div id="noteList"></div>
+        <div class="inline"><input type="text" id="newNote" placeholder="Add a note…" style="flex:1" /><button class="mini" id="addNote" type="button">Add</button></div>
+      </div>
+      <div class="inline" style="justify-content:space-between;margin-top:1rem">
+        <button class="mini mini--danger" id="deleteCustomer" type="button">Delete</button>
+        <div class="inline">
+          <button class="mini" id="cancelCustomer" type="button">Cancel</button>
+          <button class="btn btn--primary" id="saveCustomer" type="button" style="padding:.6rem 1.3rem;font-size:.84rem">Save</button>
+        </div>
+      </div>
+      <div class="status" id="custModalStatus"></div>
+    </div>
+  </div>
+
+  <!-- Compose message modal -->
+  <div class="modal" id="msgModal">
+    <div class="modal__box">
+      <h3 id="msgTitle">Send message</h3>
+      <div class="field"><label>Amount ($)</label><input type="number" id="msgAmount" step="0.01" min="0" placeholder="0.00" /></div>
+      <div class="field"><label>Message</label><textarea id="msgBody" style="min-height:120px"></textarea></div>
+      <div class="inline" style="margin-bottom:.4rem">
+        <button class="btn btn--primary" id="sendText" style="flex:1;padding:.7rem;font-size:.86rem">💬 Text</button>
+        <button class="btn btn--soft" id="sendEmail" style="flex:1;padding:.7rem;font-size:.86rem">✉️ Email</button>
+      </div>
+      <button class="mini" id="closeMsg" type="button">Close</button>
+      <div class="status" id="msgStatus"></div>
+    </div>
+  </div>
 
   <script src="admin.js"></script>
 </body>
