@@ -1,32 +1,6 @@
 [
-  {
-    "src": "assets/gallery/1783280501908-firetest.png",
-    "caption": "Fire test 🐩",
-    "alt": "Fire test 🐩"
-  },
-  {
-    "src": "assets/britni.jpg",
-    "caption": "Britni & the crew",
-    "tall": true,
-    "w": 960,
-    "h": 640
-  },
-  {
-    "src": "assets/groom-strawberry.jpg",
-    "caption": "Berry sweet",
-    "w": 1536,
-    "h": 2048
-  },
-  {
-    "src": "assets/groom-pink.jpg",
-    "caption": "Pretty in pink",
-    "w": 1536,
-    "h": 2048
-  },
-  {
-    "src": "assets/paris.jpg",
-    "caption": "Paris, quality control",
-    "w": 1109,
-    "h": 1109
-  }
+  { "src": "assets/britni.jpg", "caption": "Britni & the crew", "tall": true, "w": 960, "h": 640 },
+  { "src": "assets/groom-strawberry.jpg", "caption": "Berry sweet", "w": 1536, "h": 2048 },
+  { "src": "assets/groom-pink.jpg", "caption": "Pretty in pink", "w": 1536, "h": 2048 },
+  { "src": "assets/paris.jpg", "caption": "Paris, quality control", "w": 1109, "h": 1109 }
 ]
