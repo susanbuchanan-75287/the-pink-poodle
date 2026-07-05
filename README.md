@@ -20,6 +20,17 @@ The booking form on the site does **not** need a server. When a visitor fills it
 
 To change the phone number, edit `SALON_PHONE` in `script.js`.
 
+## SEO
+The site is optimized for local search ("dog grooming Princeton WV" and similar):
+- Descriptive title, meta description & keywords, canonical URL, and `robots` directives
+- **Geo meta tags** (region, placename, coordinates) targeting Princeton / Mercer County, WV
+- **Open Graph + Twitter Card** tags for rich link previews on Facebook, iMessage, etc.
+- **Schema.org structured data** — `PetGroomer`/`LocalBusiness` (address, geo, hours-ready, services, areaServed, sameAs) and a `FAQPage` for rich results
+- `sitemap.xml` (with image sitemap) and `robots.txt`
+- Semantic headings, descriptive `alt` text, and explicit image `width`/`height` for Core Web Vitals
+
+After the domain is live, submit `https://pinkpoodle.dog/sitemap.xml` in [Google Search Console](https://search.google.com/search-console) and create/claim the [Google Business Profile](https://business.google.com) for the strongest local ranking.
+
 ## Hosting (GitHub Pages)
 1. Repo: `susanbuchanan-75287/the-pink-poodle`
 2. Settings → Pages → Source: **Deploy from a branch** → `main` / root
