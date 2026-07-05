@@ -61,19 +61,10 @@ form.addEventListener('submit', (e) => {
   window.location.href = smsUrl;
 });
 
-// ===== Gallery lightbox =====
+// ===== Gallery: render from manifest, then lightbox =====
 const lightbox = document.getElementById('lightbox');
 const lightboxImg = document.getElementById('lightboxImg');
 const lightboxClose = lightbox.querySelector('.lightbox__close');
-
-document.querySelectorAll('.gallery__item img').forEach(img => {
-  img.addEventListener('click', () => {
-    lightboxImg.src = img.src;
-    lightboxImg.alt = img.alt;
-    lightbox.classList.add('open');
-    lightbox.setAttribute('aria-hidden', 'false');
-  });
-});
 
 const closeLightbox = () => {
   lightbox.classList.remove('open');
@@ -83,6 +74,46 @@ const closeLightbox = () => {
 lightboxClose.addEventListener('click', closeLightbox);
 lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+
+const openLightbox = (src, alt) => {
+  lightboxImg.src = src;
+  lightboxImg.alt = alt;
+  lightbox.classList.add('open');
+  lightbox.setAttribute('aria-hidden', 'false');
+};
+
+async function renderGallery() {
+  const grid = document.getElementById('galleryGrid');
+  if (!grid) return;
+  let items = [];
+  try {
+    const res = await fetch('gallery.json?t=' + Date.now());
+    if (res.ok) items = await res.json();
+  } catch (_) { /* keep noscript fallback */ }
+  if (!Array.isArray(items) || !items.length) return;
+
+  grid.innerHTML = '';
+  items.forEach((item, i) => {
+    const fig = document.createElement('figure');
+    fig.className = 'gallery__item reveal' + (item.tall ? ' gallery__item--tall' : '');
+    const img = document.createElement('img');
+    img.src = item.src;
+    img.alt = item.alt || item.caption || 'A freshly groomed pup at The Pink Poodle';
+    if (item.w) img.width = item.w;
+    if (item.h) img.height = item.h;
+    img.loading = 'lazy';
+    img.addEventListener('click', () => openLightbox(img.src, img.alt));
+    fig.appendChild(img);
+    if (item.caption) {
+      const cap = document.createElement('figcaption');
+      cap.textContent = item.caption;
+      fig.appendChild(cap);
+    }
+    grid.appendChild(fig);
+    if (window.__revealObserver) window.__revealObserver.observe(fig);
+    else fig.classList.add('in');
+  });
+}
 
 // ===== Reveal on scroll =====
 const revealEls = document.querySelectorAll(
@@ -100,7 +131,11 @@ if ('IntersectionObserver' in window) {
       }
     });
   }, { threshold: 0.12 });
+  window.__revealObserver = io;
   revealEls.forEach(el => io.observe(el));
 } else {
   revealEls.forEach(el => el.classList.add('in'));
 }
+
+// Render the gallery once the observer is ready
+renderGallery();

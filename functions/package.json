@@ -1,0 +1,12 @@
+{
+  "name": "pinkpoodle-functions",
+  "description": "Upload backend for The Pink Poodle — commits gallery photos to GitHub and posts to Facebook.",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "firebase-functions": "^5.1.1"
+  },
+  "private": true
+}

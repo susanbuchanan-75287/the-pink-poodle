@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Admin · Upload a Photo · The Pink Poodle</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#e75a9c" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;1,400&family=Parisienne&family=Playfair+Display:wght@600;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%A9%3C/text%3E%3C/svg%3E" />
+  <style>
+    body { background: radial-gradient(circle at 20% 0%, #fff, var(--blush)); min-height: 100vh; }
+    .admin { max-width: 620px; margin: 0 auto; padding: 3rem 1.3rem 5rem; }
+    .admin__head { text-align: center; margin-bottom: 2rem; }
+    .admin__head .brand { justify-content: center; font-size: 1.7rem; margin-bottom: 0.6rem; }
+    .admin__head .script { color: var(--pink); font-size: 2rem; }
+    .admin__card { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 2rem; }
+    .admin__card + .admin__card { margin-top: 1.4rem; }
+    .drop {
+      border: 2px dashed var(--pink-soft); border-radius: 16px; padding: 2.2rem 1rem; text-align: center;
+      color: var(--ink-soft); cursor: pointer; transition: border-color .2s, background .2s;
+    }
+    .drop:hover, .drop.drag { border-color: var(--pink); background: var(--blush); }
+    .drop strong { color: var(--pink-deep); }
+    .preview { margin-top: 1rem; display: none; }
+    .preview img { width: 100%; border-radius: 14px; box-shadow: var(--shadow-sm); max-height: 320px; object-fit: cover; }
+    .toggle { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; color: var(--ink-soft); font-size: 0.92rem; }
+    .toggle input { width: 20px; height: 20px; accent-color: var(--pink); }
+    .soon { font-size: 0.72rem; background: var(--pink-soft); color: var(--pink-deep); padding: 0.1rem 0.5rem; border-radius: 100px; font-weight: 600; }
+    .status { margin-top: 1.2rem; padding: 1rem 1.1rem; border-radius: 12px; font-size: 0.92rem; display: none; }
+    .status.show { display: block; }
+    .status.info { background: var(--blush); color: var(--pink-deep); }
+    .status.ok { background: #eafaf0; color: #1c7a48; }
+    .status.err { background: #fdecef; color: #b3243b; }
+    .btn[disabled] { opacity: 0.55; cursor: not-allowed; transform: none !important; }
+    .admin__foot { text-align: center; margin-top: 1.6rem; font-size: 0.85rem; }
+    .admin__foot a { color: var(--pink); }
+    .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.5); border-top-color: #fff; border-radius: 50%; animation: sp .7s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <main class="admin">
+    <div class="admin__head">
+      <div class="brand"><span class="brand__mark">🐩</span><span class="brand__text">The Pink Poodle</span></div>
+      <p class="script">Add a photo</p>
+    </div>
+
+    <form class="admin__card" id="uploadForm" novalidate>
+      <div class="field field--full">
+        <label for="adminKey">Admin passphrase</label>
+        <input type="password" id="adminKey" autocomplete="current-password" placeholder="Enter your passphrase" required />
+      </div>
+
+      <label class="drop" id="drop" for="photo">
+        <div id="dropText">📷 <strong>Tap to choose a photo</strong><br />or drag &amp; drop it here</div>
+        <input type="file" id="photo" accept="image/*" hidden />
+      </label>
+      <div class="preview" id="preview"><img id="previewImg" alt="Preview" /></div>
+
+      <div class="field field--full" style="margin-top:1rem">
+        <label for="caption">Caption (shows on the website gallery)</label>
+        <input type="text" id="caption" maxlength="80" placeholder="e.g. Fresh spring groom 🌸" />
+      </div>
+
+      <label class="toggle">
+        <input type="checkbox" id="toFacebook" disabled />
+        Also post to the Facebook page <span class="soon">Coming soon</span>
+      </label>
+
+      <button type="submit" class="btn btn--primary btn--block" id="submitBtn" style="margin-top:1.4rem">Upload to Gallery</button>
+      <div class="status" id="status"></div>
+    </form>
+
+    <p class="admin__foot"><a href="index.html">← Back to the website</a></p>
+  </main>
+
+  <script src="admin.js"></script>
+</body>
+</html>
