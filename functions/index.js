@@ -53,7 +53,7 @@ function gh(path, token, opts = {}) {
 exports.pinkPoodleUpload = onRequest(
   {
     secrets: [GH_TOKEN, PP_ADMIN_KEY, PP_FB_PAGE_ID, PP_FB_PAGE_TOKEN],
-    cors: true,
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "512MiB",
     timeoutSeconds: 120,
     region: "us-central1",
@@ -65,7 +65,9 @@ exports.pinkPoodleUpload = onRequest(
     try {
       const { adminKey, imageBase64, filename, contentType, caption, postToFacebook } = req.body || {};
 
-      if (!adminKey || adminKey !== PP_ADMIN_KEY.value().trim()) {
+      if (!timingSafeEqualStr(adminKey, PP_ADMIN_KEY.value().trim())) {
+        const ok = await checkRateLimit("authfail", clientIp(req), { max: 8, windowMs: 10 * 60 * 1000 });
+        if (!ok) return res.status(429).json({ error: "Too many attempts. Try again later." });
         return res.status(401).json({ error: "Invalid passphrase." });
       }
       if (!imageBase64) return res.status(400).json({ error: "No image provided." });
@@ -233,7 +235,7 @@ function customerOut(doc) {
 exports.pinkPoodleApi = onRequest(
   {
     secrets: [GH_TOKEN, PP_ADMIN_KEY, PP_FB_PAGE_ID, PP_FB_PAGE_TOKEN],
-    cors: true,
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "512MiB",
     timeoutSeconds: 120,
     region: "us-central1",
@@ -244,7 +246,10 @@ exports.pinkPoodleApi = onRequest(
 
     const body = req.body || {};
     const { action } = body;
-    if (!body.adminKey || body.adminKey !== PP_ADMIN_KEY.value().trim()) {
+    if (!timingSafeEqualStr(body.adminKey, PP_ADMIN_KEY.value().trim())) {
+      // Throttle brute-force guessing: block an IP after repeated bad passphrases.
+      const ok = await checkRateLimit("authfail", clientIp(req), { max: 8, windowMs: 10 * 60 * 1000 });
+      if (!ok) return res.status(429).json({ error: "Too many attempts. Try again later." });
       return res.status(401).json({ error: "Invalid passphrase." });
     }
 
@@ -484,10 +489,57 @@ async function sendOwnerSms(bodyText) {
   await client.messages.create({ to: BRITNI_SMS, from: TWILIO_FROM_NUMBER.value().trim(), body: bodyText });
 }
 
+/**
+ * Firestore-backed fixed-window rate limiter. Protects the public booking
+ * endpoint from abuse (email/SMS quota drain, inbox spam). Returns true when
+ * the request is allowed, false when the caller has exceeded `max` in `windowMs`.
+ * Fails OPEN on transaction error so a Firestore hiccup never blocks a real
+ * customer's booking.
+ */
+async function checkRateLimit(bucket, key, { max, windowMs }) {
+  const safeKey = String(key || "unknown").replace(/[^a-zA-Z0-9]/g, "_").slice(0, 80) || "unknown";
+  const ref = db.collection("pp_ratelimit").doc(`${bucket}__${safeKey}`);
+  const nowMs = Date.now();
+  try {
+    return await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      let count = 0;
+      let windowStart = nowMs;
+      if (snap.exists) {
+        const d = snap.data() || {};
+        if (nowMs - (d.windowStart || 0) < windowMs) {
+          count = d.count || 0;
+          windowStart = d.windowStart;
+        }
+      }
+      if (count >= max) return false;
+      tx.set(ref, { count: count + 1, windowStart, updated: nowMs }, { merge: true });
+      return true;
+    });
+  } catch (e) {
+    console.error("rate limit check failed (allowing)", e && e.message);
+    return true;
+  }
+}
+
+function clientIp(req) {
+  const fwd = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return (fwd || req.ip || "unknown").slice(0, 45);
+}
+
+/** Constant-time string compare to avoid leaking the passphrase via timing. */
+function timingSafeEqualStr(a, b) {
+  const crypto = require("crypto");
+  const ba = Buffer.from(String(a || ""), "utf8");
+  const bb = Buffer.from(String(b || ""), "utf8");
+  if (ba.length !== bb.length || ba.length === 0) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
 exports.pinkPoodleBook = onRequest(
   {
     secrets: [SENDGRID_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER],
-    cors: true,
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "256MiB",
     timeoutSeconds: 30,
     region: "us-central1",
@@ -495,6 +547,12 @@ exports.pinkPoodleBook = onRequest(
   async (req, res) => {
     if (req.method === "OPTIONS") return res.status(204).send("");
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+    // Rate limit: max 6 requests / 10 min per IP (fails open on Firestore error).
+    const allowed = await checkRateLimit("book", clientIp(req), { max: 6, windowMs: 10 * 60 * 1000 });
+    if (!allowed) {
+      return res.status(429).json({ error: "Too many requests. Please text 304-921-2748 to book." });
+    }
 
     try {
       const b = req.body || {};
