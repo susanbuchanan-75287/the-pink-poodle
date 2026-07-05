@@ -21,44 +21,88 @@ navMobile.querySelectorAll('a').forEach(a =>
 // ===== Footer year =====
 document.getElementById('year').textContent = new Date().getFullYear();
 
-// ===== Booking form -> pre-filled SMS to Britni's phone =====
-const SALON_PHONE = '3049212748'; // Britni's cell
+// ===== Booking form -> server-side notify (email now, SMS when Twilio is live) =====
+const SALON_PHONE = '3049212748'; // Britni's cell (fallback deep-link)
+const BOOK_ENDPOINT = 'https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodleBook';
 const form = document.getElementById('bookForm');
+const bookStatus = document.getElementById('bookStatus');
+const bookBtn = document.getElementById('bookBtn');
 
-form.addEventListener('submit', (e) => {
+const val = (id) => (document.getElementById(id).value || '').trim();
+
+function smsFallbackUrl(fields) {
+  const lines = [
+    'Hi Britni! I\'d like to book an appointment at The Pink Poodle.',
+    `Name: ${fields.ownerName}`,
+    fields.phone ? `Phone: ${fields.phone}` : '',
+    fields.dogName ? `Dog: ${fields.dogName}${fields.breed ? ` (${fields.breed})` : ''}` : (fields.breed ? `Breed/Size: ${fields.breed}` : ''),
+    `Service: ${fields.service}`,
+    fields.prefDate ? `Preferred: ${fields.prefDate}` : '',
+    fields.notes ? `Notes: ${fields.notes}` : ''
+  ].filter(Boolean);
+  const body = encodeURIComponent(lines.join('\n'));
+  const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  return `sms:${SALON_PHONE}${isiOS ? '&' : '?'}body=${body}`;
+}
+
+function setStatus(msg, kind) {
+  if (!bookStatus) return;
+  bookStatus.textContent = msg;
+  bookStatus.className = 'book__status' + (kind ? ' book__status--' + kind : '');
+}
+
+form.addEventListener('submit', async (e) => {
   e.preventDefault();
 
-  const val = (id) => (document.getElementById(id).value || '').trim();
-  const owner = val('ownerName');
+  const fields = {
+    ownerName: val('ownerName'),
+    phone: val('phone'),
+    email: val('email'),
+    company: val('company'), // honeypot
+    dogName: val('dogName'),
+    breed: val('breed'),
+    service: val('service'),
+    prefDate: val('prefDate'),
+    notes: val('notes')
+  };
 
-  if (!owner) {
-    document.getElementById('ownerName').focus();
+  if (!fields.ownerName) { document.getElementById('ownerName').focus(); return; }
+  if (!fields.phone && !fields.email) {
+    setStatus('Please add a phone number or email so Britni can reach you.', 'err');
+    document.getElementById('phone').focus();
     return;
   }
 
-  const dog = val('dogName');
-  const breed = val('breed');
-  const service = val('service');
-  const when = val('prefDate');
-  const notes = val('notes');
+  bookBtn.disabled = true;
+  const original = bookBtn.textContent;
+  bookBtn.textContent = 'Sending…';
+  setStatus('Sending your request…');
 
-  const lines = [
-    'Hi Britni! I\'d like to book an appointment at The Pink Poodle.',
-    `Name: ${owner}`,
-    dog ? `Dog: ${dog}${breed ? ` (${breed})` : ''}` : (breed ? `Breed/Size: ${breed}` : ''),
-    `Service: ${service}`,
-    when ? `Preferred: ${when}` : '',
-    notes ? `Notes: ${notes}` : ''
-  ].filter(Boolean);
-
-  const body = encodeURIComponent(lines.join('\n'));
-
-  // iOS uses "&", Android/most others use "?"; provide a body that works broadly.
-  const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  const sep = isiOS ? '&' : '?';
-  const smsUrl = `sms:${SALON_PHONE}${sep}body=${body}`;
-
-  window.location.href = smsUrl;
+  try {
+    const res = await fetch(BOOK_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok) {
+      form.reset();
+      setStatus('🩷 Sent! Britni got your request and will text you back to confirm.', 'ok');
+    } else {
+      throw new Error(data.error || 'send failed');
+    }
+  } catch (err) {
+    // Fallback: on phones, open Messages pre-filled; otherwise show contact.
+    if (/iPad|iPhone|iPod|Android/.test(navigator.userAgent)) {
+      setStatus('Opening your Messages app to finish sending…', 'ok');
+      window.location.href = smsFallbackUrl(fields);
+    } else {
+      setStatus('Sorry — that didn\'t go through. Please text 304-921-2748 or email groomerbrit@yahoo.com.', 'err');
+    }
+  } finally {
+    bookBtn.disabled = false;
+    bookBtn.textContent = original;
+  }
 });
 
 // ===== Gallery: render from manifest, then lightbox =====

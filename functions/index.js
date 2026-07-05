@@ -21,6 +21,18 @@ const PP_ADMIN_KEY = defineSecret("PP_ADMIN_KEY");
 const PP_FB_PAGE_ID = defineSecret("PP_FB_PAGE_ID");
 const PP_FB_PAGE_TOKEN = defineSecret("PP_FB_PAGE_TOKEN");
 
+// Shared notification transport (already provisioned in this Firebase project).
+const SENDGRID_API_KEY = defineSecret("SENDGRID_API_KEY");
+const TWILIO_ACCOUNT_SID = defineSecret("TWILIO_ACCOUNT_SID");
+const TWILIO_AUTH_TOKEN = defineSecret("TWILIO_AUTH_TOKEN");
+const TWILIO_FROM_NUMBER = defineSecret("TWILIO_FROM_NUMBER");
+
+// Where booking alerts go. Britni's cell + salon inbox.
+const BRITNI_SMS = "+13049212748";
+const OWNER_EMAIL = "groomerbrit@yahoo.com";
+const FROM_EMAIL = "oracle@barkparks.dog"; // verified SendGrid sender for this project
+const FROM_NAME = "The Pink Poodle — Website";
+
 const REPO = "susanbuchanan-75287/the-pink-poodle";
 const BRANCH = "main";
 const GH_API = "https://api.github.com";
@@ -416,6 +428,185 @@ exports.pinkPoodleApi = onRequest(
     } catch (e) {
       console.error(e);
       return res.status(500).json({ error: e.message || "Request failed." });
+    }
+  }
+);
+
+/* ============================================================================
+ * pinkPoodleBook — public booking endpoint (no passphrase).
+ *
+ * The website booking form POSTs here so a request reaches Britni from ANY
+ * device (desktop included, where sms: links don't work). It:
+ *   1. Logs the request to Firestore (pp_bookings)
+ *   2. Emails the salon inbox (SendGrid) — lands on Britni's phone instantly
+ *   3. Texts Britni (Twilio) automatically once Twilio creds are configured
+ *      (today the Twilio secret is a placeholder, so SMS is skipped gracefully)
+ *
+ * Spam guard: a hidden "company" honeypot field (bots fill it, humans don't).
+ * ========================================================================== */
+
+function esc(s) {
+  return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function normalizePhone(p) {
+  const digits = String(p || "").replace(/[^\d]/g, "");
+  if (!digits) return "";
+  if (digits.length === 10) return "+1" + digits;
+  if (digits.length === 11 && digits[0] === "1") return "+" + digits;
+  return "+" + digits;
+}
+
+async function sendOwnerEmail({ subject, html, text, replyTo }) {
+  const sgMail = require("@sendgrid/mail");
+  sgMail.setApiKey(SENDGRID_API_KEY.value().trim());
+  await sgMail.send({
+    to: OWNER_EMAIL,
+    from: { email: FROM_EMAIL, name: FROM_NAME },
+    ...(replyTo ? { replyTo } : {}),
+    subject,
+    text,
+    html,
+    trackingSettings: { clickTracking: { enable: false } },
+  });
+}
+
+function twilioReady() {
+  const sid = (TWILIO_ACCOUNT_SID.value() || "").trim();
+  const authToken = (TWILIO_AUTH_TOKEN.value() || "").trim();
+  const from = (TWILIO_FROM_NUMBER.value() || "").trim();
+  return !!(sid && /^AC[0-9a-fA-F]{32}$/.test(sid) && authToken && from && /^\+[1-9]\d{6,}$/.test(from));
+}
+
+async function sendOwnerSms(bodyText) {
+  const twilio = require("twilio");
+  const client = twilio(TWILIO_ACCOUNT_SID.value().trim(), TWILIO_AUTH_TOKEN.value().trim());
+  await client.messages.create({ to: BRITNI_SMS, from: TWILIO_FROM_NUMBER.value().trim(), body: bodyText });
+}
+
+exports.pinkPoodleBook = onRequest(
+  {
+    secrets: [SENDGRID_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER],
+    cors: true,
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    region: "us-central1",
+  },
+  async (req, res) => {
+    if (req.method === "OPTIONS") return res.status(204).send("");
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+    try {
+      const b = req.body || {};
+
+      // Honeypot: silently accept bots without notifying anyone.
+      if (b.company) return res.json({ ok: true, delivered: false });
+
+      const name = String(b.ownerName || b.name || "").trim().slice(0, 80);
+      const phoneRaw = String(b.phone || "").trim().slice(0, 30);
+      const phone = normalizePhone(phoneRaw);
+      const email = String(b.email || "").trim().slice(0, 120);
+      const dog = String(b.dogName || b.dog || "").trim().slice(0, 60);
+      const breed = String(b.breed || "").trim().slice(0, 60);
+      const service = String(b.service || "").trim().slice(0, 60);
+      const when = String(b.prefDate || b.when || "").trim().slice(0, 120);
+      const notes = String(b.notes || "").trim().slice(0, 1000);
+      const testMode = b.test === true;
+
+      if (!name || (!phone && !email)) {
+        return res.status(400).json({ error: "Please include your name and a phone number or email." });
+      }
+      if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        return res.status(400).json({ error: "That email doesn't look right." });
+      }
+
+      // 1) Log the request
+      try {
+        await db.collection("pp_bookings").add({
+          name, phone, email, dog, breed, service, prefDate: when, notes,
+          test: testMode,
+          ua: String(req.headers["user-agent"] || "").slice(0, 300),
+          ts: now(),
+        });
+      } catch (e) {
+        console.error("booking log failed", e);
+      }
+
+      const tag = testMode ? "🧪 TEST — please ignore — " : "";
+      const contactLine = [phone ? `📱 ${phoneRaw}` : "", email ? `✉️ ${email}` : ""].filter(Boolean).join("  ·  ");
+      const rows = [
+        ["Name", name],
+        ["Phone", phoneRaw],
+        ["Email", email],
+        ["Dog", [dog, breed].filter(Boolean).join(" · ")],
+        ["Service", service],
+        ["Preferred", when],
+        ["Notes", notes],
+      ].filter(([, v]) => v);
+
+      const textBody =
+        `${tag}New booking request from pinkpoodle.dog\n\n` +
+        rows.map(([k, v]) => `${k}: ${v}`).join("\n") +
+        (phone ? `\n\nTap to text ${name}: sms:${phone}` : "");
+
+      const html =
+        `<div style="font-family:Nunito,Arial,sans-serif;max-width:560px;margin:0 auto;color:#2c1c26;">` +
+        `<h2 style="color:#b83372;margin-bottom:4px;">🐩 ${esc(tag)}New Booking Request</h2>` +
+        `<p style="color:#6a5560;margin-top:0;">Sent from the booking form on pinkpoodle.dog</p>` +
+        `<table style="border-collapse:collapse;width:100%;margin:14px 0;">` +
+        rows
+          .map(
+            ([k, v]) =>
+              `<tr><td style="padding:7px 10px;background:#fdf0f6;font-weight:700;border:1px solid #f7c9dd;white-space:nowrap;">${esc(k)}</td>` +
+              `<td style="padding:7px 10px;border:1px solid #f7c9dd;">${esc(v)}</td></tr>`
+          )
+          .join("") +
+        `</table>` +
+        (phone
+          ? `<p><a href="sms:${esc(phone)}" style="background:linear-gradient(135deg,#e75a9c,#b83372);color:#fff;padding:11px 20px;border-radius:100px;text-decoration:none;font-weight:700;">📲 Text ${esc(name)} back</a>` +
+            `&nbsp;&nbsp;<a href="tel:${esc(phone)}" style="color:#b83372;font-weight:700;">Call</a></p>`
+          : "") +
+        `<p style="font-size:12px;color:#999;">${esc(contactLine)}</p>` +
+        `</div>`;
+
+      // 2) Email the salon inbox
+      let emailed = false;
+      try {
+        await sendOwnerEmail({
+          subject: `${tag}🐩 New booking: ${name}${service ? " — " + service : ""}`,
+          html,
+          text: textBody,
+          replyTo: email ? { email, name } : undefined,
+        });
+        emailed = true;
+      } catch (e) {
+        console.error("SendGrid send failed", e && e.message);
+      }
+
+      // 3) Text Britni (auto-enables when Twilio creds are set)
+      let texted = false;
+      if (twilioReady()) {
+        try {
+          await sendOwnerSms(
+            `${tag}🐩 New booking: ${name}` +
+              (phoneRaw ? ` (${phoneRaw})` : "") +
+              (service ? ` — ${service}` : "") +
+              (when ? `, ${when}` : "") +
+              ` · via pinkpoodle.dog`
+          );
+          texted = true;
+        } catch (e) {
+          console.error("Twilio send failed", e && e.message);
+        }
+      }
+
+      if (!emailed && !texted) {
+        return res.status(502).json({ error: "Could not deliver right now. Please text 304-921-2748." });
+      }
+      return res.json({ ok: true, delivered: true, emailed, texted });
+    } catch (e) {
+      console.error(e);
+      return res.status(500).json({ error: e.message || "Booking failed." });
     }
   }
 );
