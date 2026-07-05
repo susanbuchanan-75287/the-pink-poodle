@@ -52,6 +52,15 @@
     .toggle input { width: 20px; height: 20px; accent-color: var(--pink); }
     .soon { font-size: 0.68rem; background: var(--pink-soft); color: var(--pink-deep); padding: 0.1rem 0.5rem; border-radius: 100px; font-weight: 600; }
 
+    /* Camera capture */
+    .btn--soft { background: #fff; color: var(--pink-deep); border: 1.5px solid var(--pink-soft); }
+    .btn--soft:hover { background: var(--blush); }
+    .cam { display: none; margin-top: 0.9rem; }
+    .cam.open { display: block; }
+    .cam video { width: 100%; border-radius: 14px; background: #000; box-shadow: var(--shadow-sm); max-height: 60vh; object-fit: cover; }
+    .cam__bar { display: flex; gap: 0.6rem; margin-top: 0.7rem; }
+    .cam__bar .btn { flex: 1; }
+
     /* Gallery manage grid */
     .ggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.8rem; margin-top: 1.2rem; }
     .gtile { position: relative; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-sm); background: #f6e9d6; padding: 6px; border: 3px solid transparent; border-image: linear-gradient(135deg,#f7e7c4,#c9a24b 50%,#a9772a) 1; }
@@ -116,6 +125,23 @@
       <label class="toggle"><input type="checkbox" id="remember" checked /> Keep me signed in on this phone</label>
       <button type="submit" class="btn btn--primary btn--block" style="margin-top:1rem">Unlock Console 🔑</button>
       <div class="status" id="loginStatus"></div>
+      <p style="text-align:center;margin-top:1rem;font-size:.85rem"><a href="#" id="forgotLink" style="color:var(--pink)">Forgot passphrase? Email me a reset link</a></p>
+    </form>
+
+    <!-- Passphrase reset (shown when opened from an emailed reset link) -->
+    <form class="card hidden" id="resetCard">
+      <h3 style="font-family:var(--serif);margin-bottom:.6rem">Set a new passphrase 🔐</h3>
+      <p class="muted" style="margin-bottom:1rem">Choose a new passphrase for the Salon Console. At least 8 characters.</p>
+      <div class="field">
+        <label for="newPass">New passphrase</label>
+        <input type="password" id="newPass" autocomplete="new-password" minlength="8" placeholder="New passphrase" required />
+      </div>
+      <div class="field">
+        <label for="newPass2">Confirm new passphrase</label>
+        <input type="password" id="newPass2" autocomplete="new-password" minlength="8" placeholder="Type it again" required />
+      </div>
+      <button type="submit" class="btn btn--primary btn--block">Save New Passphrase</button>
+      <div class="status" id="resetStatus"></div>
     </form>
 
     <!-- Console -->
@@ -135,6 +161,17 @@
             <div id="dropText">📷 <strong>Tap to choose a photo</strong><br />or drag &amp; drop it here</div>
             <input type="file" id="photo" accept="image/*" hidden />
           </label>
+          <button type="button" class="btn btn--soft btn--block" id="cameraBtn" style="margin-top:.6rem">📸 Take a Photo</button>
+          <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden />
+          <div class="cam" id="cam">
+            <video id="camVideo" playsinline autoplay muted></video>
+            <div class="cam__bar">
+              <button type="button" class="btn btn--soft" id="camFlip">🔄 Flip</button>
+              <button type="button" class="btn btn--primary" id="camSnap">📸 Capture</button>
+              <button type="button" class="btn btn--soft" id="camCancel">✕ Cancel</button>
+            </div>
+          </div>
+          <canvas id="camCanvas" hidden></canvas>
           <div class="preview" id="preview"><img id="previewImg" alt="Preview" /></div>
           <div class="row2" style="margin-top:1rem">
             <div class="field"><label for="dogName">Dog's name</label><input type="text" id="dogName" maxlength="60" placeholder="e.g. Bella" /></div>
@@ -202,6 +239,15 @@
           <div class="field"><label for="invoiceTemplate">Invoice / payment notice</label><textarea id="invoiceTemplate"></textarea></div>
           <button type="submit" class="btn btn--primary btn--block" id="settingsBtn">Save Settings</button>
           <div class="status" id="settingsStatus"></div>
+        </form>
+
+        <form class="card" id="passForm">
+          <h3 style="font-family:var(--serif);margin-bottom:.4rem">Change passphrase 🔐</h3>
+          <p class="muted" style="margin-bottom:1rem">Set a new Salon Console passphrase (at least 8 characters). Britni &amp; Susan are emailed whenever it changes.</p>
+          <div class="field"><label for="chNewPass">New passphrase</label><input type="password" id="chNewPass" autocomplete="new-password" minlength="8" placeholder="New passphrase" /></div>
+          <div class="field"><label for="chNewPass2">Confirm new passphrase</label><input type="password" id="chNewPass2" autocomplete="new-password" minlength="8" placeholder="Type it again" /></div>
+          <button type="submit" class="btn btn--primary btn--block" id="passBtn">Update Passphrase</button>
+          <div class="status" id="passStatus"></div>
         </form>
       </section>
     </div>

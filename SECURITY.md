@@ -25,9 +25,13 @@ than opening a public issue. We'll respond as quickly as we can.
   checked before anything is sent or stored.
 - **CORS lockdown:** functions only accept browser requests from
   `*.pinkpoodle.dog` (and localhost for testing).
-- **Admin passphrase:** the Salon Console requires a passphrase, compared in
-  **constant time** (no timing leak). Wrong guesses are throttled — 8 failed
-  attempts per IP per 10 minutes triggers HTTP 429, blocking brute force.
+- **Admin passphrase:** the Salon Console requires a passphrase, stored as a
+  salted **scrypt hash** in Firestore and compared in **constant time** (no
+  timing leak, never stored in plaintext). Wrong guesses are throttled — 8
+  failed attempts per IP per 10 minutes triggers HTTP 429, blocking brute force.
+- **Passphrase reset:** a self-service reset emails a one-time, 30-minute link
+  (SHA-256 hashed token, single-use) to the salon owner **and** a backup admin;
+  reset requests are capped at 3 per IP per hour.
 - **Secrets** (SendGrid, Twilio, GitHub token, Facebook token, passphrase) are
   stored in Google Secret Manager — never committed to the repo.
 

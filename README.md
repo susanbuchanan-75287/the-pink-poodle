@@ -39,7 +39,7 @@ Britni can add photos to the website gallery herself — no code, no commits.
 ## Salon Console 🩷 (admin.html)
 A tabbed, phone-friendly operations console behind the same passphrase. Backend: `pinkPoodleApi` + Firestore (collections `pp_customers`, `pp_settings`, `pp_messages`) in project `binditails-da2de`.
 
-- **📷 Gallery** — upload photos with dog **name + breed**, and **delete** any photo (removes the file from the repo and its entry from `gallery.json`).
+- **📷 Gallery** — upload photos with dog **name + breed**, and **delete** any photo (removes the file from the repo and its entry from `gallery.json`). Add a photo three ways: **tap to choose**, **drag &amp; drop** onto the drop zone, or **📸 Take a Photo** (opens a live in-page camera via `getUserMedia`, with a flip-camera button; falls back to the phone's native camera if permission is denied).
 - **🐾 Customers (CRM)** — add customers with phone, email, address, their **dogs (name + breed)**, and **notes/history**. Search, edit, delete. Each shows a running **balance**.
 - **💬 Messaging** — from each customer card: **Ready for pickup**, **Promo**, and **Invoice**. These open Britni's own **Messages (SMS)** or **Mail** app pre-filled (free, sends from her number). The Messages tab has an email **promo blast** (all customers BCC'd) and a **history** of everything sent. Invoices add to the customer's balance automatically.
 - **⚙️ Settings** — payment method + handle/link (Venmo/CashApp/PayPal/Zelle/Square/in-salon) and editable message templates. Placeholders: `{name} {dog} {amount} {handle} {paytype} {salon}`.
@@ -51,11 +51,19 @@ cd functions && npm install
 firebase deploy --only functions:pinkpoodle --project binditails-da2de
 ```
 
-### Change the admin passphrase
-```
-"new-passphrase" | firebase functions:secrets:set PP_ADMIN_KEY --project binditails-da2de --data-file=- --force
-firebase deploy --only functions:pinkpoodle --project binditails-da2de
-```
+### Change / reset the admin passphrase
+The passphrase is now stored as a salted **scrypt hash** in Firestore (`pp_config/admin`). The `PP_ADMIN_KEY` secret is only the **bootstrap** value, used until the passphrase is changed once. Three ways to manage it:
+
+1. **From the console** — Settings tab → *Change passphrase* (must be signed in).
+2. **Forgot it** — the login screen's *"Forgot passphrase? Email me a reset link"* link (`pinkPoodleReset` → `requestReset`) emails a one-time, 30-minute link to **both** Britni (`groomerbrit@yahoo.com`) and the **backup admin** Susan (`susanbuchanan@yahoo.com`). Opening the link (`admin.html?reset=TOKEN`) sets a new passphrase (`applyReset`).
+3. **Reset the bootstrap secret** (rarely needed):
+   ```
+   "new-passphrase" | firebase functions:secrets:set PP_ADMIN_KEY --project binditails-da2de --data-file=- --force
+   firebase deploy --only functions:pinkpoodle --project binditails-da2de
+   ```
+   Note: this only takes effect if no Firestore passphrase has been set yet. To force it, also delete the `pp_config/admin` doc.
+
+**Backup admin:** `susanbuchanan@yahoo.com` is always emailed the reset link **and** a confirmation whenever the passphrase changes, so Susan can always recover access. Every wrong passphrase is rate-limited (8 tries / 10 min per IP) and reset-link requests are capped (3 / hour per IP).
 
 ### Security note
 The fire test used the CLI's GitHub OAuth token for `GH_TOKEN`. For production, replace it with a **fine-grained PAT** scoped to only this repo's *Contents: read & write*, then re-set `GH_TOKEN` and redeploy.

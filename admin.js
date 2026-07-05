@@ -5,6 +5,7 @@
  */
 
 const ENDPOINT = 'https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodleApi';
+const RESET_ENDPOINT = 'https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodleReset';
 const MAX_BYTES = 8 * 1024 * 1024;
 const SALON = 'The Pink Poodle';
 const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
@@ -30,6 +31,17 @@ function api(action, payload = {}) {
   return fetch(ENDPOINT, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, adminKey: KEY, ...payload }),
+  }).then(async (res) => {
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('Request failed (' + res.status + ')'));
+    return data;
+  });
+}
+
+function resetApi(action, payload = {}) {
+  return fetch(RESET_ENDPOINT, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...payload }),
   }).then(async (res) => {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || ('Request failed (' + res.status + ')'));
@@ -80,6 +92,41 @@ loginCard.addEventListener('submit', async (e) => {
 
 $('logout').addEventListener('click', (e) => { e.preventDefault(); localStorage.removeItem('pp_key'); location.reload(); });
 
+/* ---------- forgot / reset passphrase ---------- */
+$('forgotLink').addEventListener('click', async (e) => {
+  e.preventDefault();
+  if (!confirm('Email a reset link to the salon owner and backup admin?')) return;
+  setStatus($('loginStatus'), '<span class="spin"></span>Sending reset link…', 'info');
+  try {
+    await resetApi('requestReset');
+    setStatus($('loginStatus'), '✅ A reset link is on its way to the salon &amp; backup admin email. It expires in 30 minutes.', 'ok');
+  } catch (err) {
+    setStatus($('loginStatus'), '❌ ' + err.message, 'err');
+  }
+});
+
+// If opened from an emailed reset link (?reset=TOKEN), show the reset form.
+const resetToken = new URLSearchParams(location.search).get('reset');
+if (resetToken) {
+  loginCard.classList.add('hidden');
+  $('resetCard').classList.remove('hidden');
+  $('resetCard').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const p1 = $('newPass').value.trim(), p2 = $('newPass2').value.trim();
+    if (p1.length < 8) return setStatus($('resetStatus'), 'Passphrase must be at least 8 characters.', 'err');
+    if (p1 !== p2) return setStatus($('resetStatus'), 'The two passphrases don\'t match.', 'err');
+    setStatus($('resetStatus'), '<span class="spin"></span>Saving…', 'info');
+    try {
+      await resetApi('applyReset', { token: resetToken, newPassphrase: p1 });
+      localStorage.removeItem('pp_key');
+      setStatus($('resetStatus'), '✅ Passphrase updated! Redirecting to sign in…', 'ok');
+      setTimeout(() => { location.href = 'admin.html'; }, 1800);
+    } catch (err) {
+      setStatus($('resetStatus'), '❌ ' + err.message, 'err');
+    }
+  });
+}
+
 /* ---------- tabs ---------- */
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
@@ -120,6 +167,44 @@ fileInput.addEventListener('change', () => chooseFile(fileInput.files[0]));
 ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('drag'); }));
 ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('drag'); }));
 drop.addEventListener('drop', (e) => { if (e.dataTransfer.files[0]) chooseFile(e.dataTransfer.files[0]); });
+
+/* Camera capture — live in-page camera (getUserMedia) with native-camera fallback */
+const cam = $('cam'), camVideo = $('camVideo'), camCanvas = $('camCanvas'), cameraInput = $('cameraInput');
+let camStream = null, camFacing = 'environment';
+function stopCamera() {
+  if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; }
+  camVideo.srcObject = null;
+  cam.classList.remove('open');
+}
+async function openCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { cameraInput.click(); return; }
+  try {
+    stopCamera();
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: camFacing }, audio: false });
+    camVideo.srcObject = camStream;
+    cam.classList.add('open');
+    clr($('uploadStatus'));
+  } catch (err) {
+    setStatus($('uploadStatus'), 'Camera unavailable — opening your photo picker instead.', 'info');
+    cameraInput.click();
+  }
+}
+function snapPhoto() {
+  const w = camVideo.videoWidth, h = camVideo.videoHeight;
+  if (!w || !h) return;
+  camCanvas.width = w; camCanvas.height = h;
+  camCanvas.getContext('2d').drawImage(camVideo, 0, 0, w, h);
+  camCanvas.toBlob((blob) => {
+    if (!blob) return;
+    stopCamera();
+    chooseFile(new File([blob], 'camera-' + Date.now() + '.jpg', { type: 'image/jpeg' }));
+  }, 'image/jpeg', 0.9);
+}
+$('cameraBtn').addEventListener('click', openCamera);
+$('camSnap').addEventListener('click', snapPhoto);
+$('camCancel').addEventListener('click', stopCamera);
+$('camFlip').addEventListener('click', () => { camFacing = camFacing === 'environment' ? 'user' : 'environment'; openCamera(); });
+cameraInput.addEventListener('change', () => chooseFile(cameraInput.files[0]));
 
 function toBase64(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); }); }
 
@@ -357,8 +442,27 @@ $('settingsForm').addEventListener('submit', async (e) => {
   finally { $('settingsBtn').disabled = false; }
 });
 
+$('passForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const p1 = $('chNewPass').value.trim(), p2 = $('chNewPass2').value.trim();
+  if (p1.length < 8) return setStatus($('passStatus'), 'Passphrase must be at least 8 characters.', 'err');
+  if (p1 !== p2) return setStatus($('passStatus'), 'The two passphrases don\'t match.', 'err');
+  $('passBtn').disabled = true;
+  setStatus($('passStatus'), '<span class="spin"></span>Updating…', 'info');
+  try {
+    await api('changePassphrase', { newPassphrase: p1 });
+    KEY = p1;
+    if (localStorage.getItem('pp_key')) localStorage.setItem('pp_key', p1);
+    $('chNewPass').value = ''; $('chNewPass2').value = '';
+    setStatus($('passStatus'), '✅ Passphrase updated. Britni &amp; Susan have been emailed a confirmation.', 'ok');
+  } catch (err) {
+    setStatus($('passStatus'), '❌ ' + err.message, 'err');
+  } finally { $('passBtn').disabled = false; }
+});
+
 /* ---------- auto sign-in ---------- */
 (function () {
+  if (resetToken) return; // don't auto-login while completing a reset
   const saved = localStorage.getItem('pp_key');
   if (saved) { $('adminKey').value = saved; loginCard.requestSubmit(); }
 })();

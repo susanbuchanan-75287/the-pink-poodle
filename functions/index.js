@@ -30,6 +30,8 @@ const TWILIO_FROM_NUMBER = defineSecret("TWILIO_FROM_NUMBER");
 // Where booking alerts go. Britni's cell + salon inbox.
 const BRITNI_SMS = "+13049212748";
 const OWNER_EMAIL = "groomerbrit@yahoo.com";
+// Backup admin (Susan) — always copied on passphrase reset links + change notices.
+const BACKUP_ADMIN_EMAIL = "susanbuchanan@yahoo.com";
 const FROM_EMAIL = "oracle@barkparks.dog"; // verified SendGrid sender for this project
 const FROM_NAME = "The Pink Poodle — Website";
 
@@ -65,7 +67,7 @@ exports.pinkPoodleUpload = onRequest(
     try {
       const { adminKey, imageBase64, filename, contentType, caption, postToFacebook } = req.body || {};
 
-      if (!timingSafeEqualStr(adminKey, PP_ADMIN_KEY.value().trim())) {
+      if (!(await verifyAdmin(adminKey))) {
         const ok = await checkRateLimit("authfail", clientIp(req), { max: 8, windowMs: 10 * 60 * 1000 });
         if (!ok) return res.status(429).json({ error: "Too many attempts. Try again later." });
         return res.status(401).json({ error: "Invalid passphrase." });
@@ -234,7 +236,7 @@ function customerOut(doc) {
 
 exports.pinkPoodleApi = onRequest(
   {
-    secrets: [GH_TOKEN, PP_ADMIN_KEY, PP_FB_PAGE_ID, PP_FB_PAGE_TOKEN],
+    secrets: [GH_TOKEN, PP_ADMIN_KEY, PP_FB_PAGE_ID, PP_FB_PAGE_TOKEN, SENDGRID_API_KEY],
     cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "512MiB",
     timeoutSeconds: 120,
@@ -246,7 +248,7 @@ exports.pinkPoodleApi = onRequest(
 
     const body = req.body || {};
     const { action } = body;
-    if (!timingSafeEqualStr(body.adminKey, PP_ADMIN_KEY.value().trim())) {
+    if (!(await verifyAdmin(body.adminKey))) {
       // Throttle brute-force guessing: block an IP after repeated bad passphrases.
       const ok = await checkRateLimit("authfail", clientIp(req), { max: 8, windowMs: 10 * 60 * 1000 });
       if (!ok) return res.status(429).json({ error: "Too many attempts. Try again later." });
@@ -427,6 +429,15 @@ exports.pinkPoodleApi = onRequest(
           return res.json({ ok: true, messages: msgs });
         }
 
+        /* ---------------- Admin passphrase ---------------- */
+        case "changePassphrase": {
+          const np = String(body.newPassphrase || "").trim();
+          if (np.length < 8) return res.status(400).json({ error: "New passphrase must be at least 8 characters." });
+          await setAdminPassphrase(np);
+          notifyPassphraseChanged("changed from the Salon Console").catch((e) => console.error("notify failed", e && e.message));
+          return res.json({ ok: true });
+        }
+
         default:
           return res.status(400).json({ error: "Unknown action: " + action });
       }
@@ -462,17 +473,70 @@ function normalizePhone(p) {
   return "+" + digits;
 }
 
-async function sendOwnerEmail({ subject, html, text, replyTo }) {
+async function sendEmail({ to, subject, html, text, replyTo }) {
   const sgMail = require("@sendgrid/mail");
   sgMail.setApiKey(SENDGRID_API_KEY.value().trim());
   await sgMail.send({
-    to: OWNER_EMAIL,
+    to,
     from: { email: FROM_EMAIL, name: FROM_NAME },
     ...(replyTo ? { replyTo } : {}),
     subject,
     text,
     html,
     trackingSettings: { clickTracking: { enable: false } },
+  });
+}
+
+async function sendOwnerEmail({ subject, html, text, replyTo }) {
+  return sendEmail({ to: OWNER_EMAIL, subject, html, text, replyTo });
+}
+
+/* -------- Admin passphrase: Firestore-backed hash + reset, with the original
+ * PP_ADMIN_KEY secret as a bootstrap fallback until it's changed once. -------- */
+function hashPass(pass, salt) {
+  const crypto = require("crypto");
+  const s = salt || crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(String(pass), s, 32).toString("hex");
+  return { salt: s, hash };
+}
+
+async function verifyAdmin(adminKey) {
+  const key = String(adminKey || "").trim();
+  if (!key) return false;
+  try {
+    const snap = await db.collection("pp_config").doc("admin").get();
+    const d = snap.exists ? snap.data() : null;
+    if (d && d.hash && d.salt) {
+      const crypto = require("crypto");
+      const cand = Buffer.from(hashPass(key, d.salt).hash, "hex");
+      const stored = Buffer.from(d.hash, "hex");
+      return cand.length === stored.length && crypto.timingSafeEqual(cand, stored);
+    }
+  } catch (e) {
+    console.error("verifyAdmin read failed", e && e.message);
+  }
+  // Bootstrap: no custom passphrase set yet — accept the original secret.
+  return timingSafeEqualStr(key, PP_ADMIN_KEY.value().trim());
+}
+
+async function setAdminPassphrase(newPass) {
+  const { salt, hash } = hashPass(newPass);
+  await db.collection("pp_config").doc("admin").set({ salt, hash, updatedAt: now() });
+}
+
+async function notifyPassphraseChanged(how) {
+  const when = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+  await sendEmail({
+    to: [OWNER_EMAIL, BACKUP_ADMIN_EMAIL],
+    subject: "🔐 Pink Poodle admin passphrase was changed",
+    text:
+      `The Pink Poodle Salon Console passphrase was ${how} on ${when} (ET).\n\n` +
+      `If this wasn't you, request a fresh reset at https://pinkpoodle.dog/admin.html and contact Susan.`,
+    html:
+      `<div style="font-family:Arial,sans-serif;max-width:520px;color:#2c1c26">` +
+      `<h2 style="color:#b83372">🔐 Admin passphrase changed</h2>` +
+      `<p>The Pink Poodle Salon Console passphrase was <strong>${esc(how)}</strong> on <strong>${esc(when)} ET</strong>.</p>` +
+      `<p style="color:#6a5560;font-size:13px">If this wasn't you, go to <a href="https://pinkpoodle.dog/admin.html">the console</a>, request a reset, and contact Susan.</p></div>`,
   });
 }
 
@@ -665,6 +729,103 @@ exports.pinkPoodleBook = onRequest(
     } catch (e) {
       console.error(e);
       return res.status(500).json({ error: e.message || "Booking failed." });
+    }
+  }
+);
+
+/* ==========================================================================
+ * pinkPoodleReset — public passphrase-recovery endpoint (no passphrase).
+ *
+ *   action "requestReset": emails a one-time, 30-minute reset link to BOTH the
+ *     salon owner (Britni) and the backup admin (Susan). Rate-limited so it
+ *     can't be used to spam those inboxes. Always returns a generic success.
+ *   action "applyReset": consumes the token from the link and sets a brand-new
+ *     passphrase, then notifies both admins that it changed.
+ * ========================================================================== */
+exports.pinkPoodleReset = onRequest(
+  {
+    secrets: [SENDGRID_API_KEY, PP_ADMIN_KEY],
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    region: "us-central1",
+  },
+  async (req, res) => {
+    if (req.method === "OPTIONS") return res.status(204).send("");
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+    const b = req.body || {};
+    const action = b.action;
+    const crypto = require("crypto");
+    const RESET_DOC = db.collection("pp_config").doc("adminReset");
+
+    try {
+      if (action === "requestReset") {
+        // Cap reset emails to protect the owner/backup inboxes.
+        const ok = await checkRateLimit("reset", clientIp(req), { max: 3, windowMs: 60 * 60 * 1000 });
+        if (!ok) return res.status(429).json({ error: "Too many reset requests. Please try again later." });
+
+        const token = crypto.randomBytes(24).toString("hex");
+        const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+        await RESET_DOC.set({
+          tokenHash,
+          expires: Date.now() + 30 * 60 * 1000,
+          used: false,
+          createdAt: now(),
+        });
+
+        const link = "https://pinkpoodle.dog/admin.html?reset=" + token;
+        // testOnly restricts delivery to the fixed backup-admin address only —
+        // never an arbitrary recipient, so it can't be abused to spam others.
+        const recipients = b.testOnly === true ? [BACKUP_ADMIN_EMAIL] : [OWNER_EMAIL, BACKUP_ADMIN_EMAIL];
+        try {
+          await sendEmail({
+            to: recipients,
+            subject: "🔐 Reset your Pink Poodle admin passphrase",
+            text:
+              `A passphrase reset was requested for The Pink Poodle Salon Console.\n\n` +
+              `Set a new passphrase here (expires in 30 minutes, one-time use):\n${link}\n\n` +
+              `If you didn't request this, you can ignore this email — nothing changes until the link is used.`,
+            html:
+              `<div style="font-family:Arial,sans-serif;max-width:520px;color:#2c1c26">` +
+              `<h2 style="color:#b83372">🐩 Reset your admin passphrase</h2>` +
+              `<p>A passphrase reset was requested for <strong>The Pink Poodle Salon Console</strong>.</p>` +
+              `<p><a href="${link}" style="background:linear-gradient(135deg,#e75a9c,#b83372);color:#fff;padding:12px 22px;border-radius:100px;text-decoration:none;font-weight:700">Set a new passphrase</a></p>` +
+              `<p style="color:#6a5560;font-size:13px">This link expires in 30 minutes and can be used once. If you didn't request it, ignore this email — nothing changes until the link is used.</p>` +
+              `<p style="color:#999;font-size:11px;word-break:break-all">Or paste this link: ${esc(link)}</p></div>`,
+          });
+        } catch (e) {
+          console.error("reset email failed", e && e.message);
+          return res.status(502).json({ error: "Couldn't send the reset email right now. Please try again shortly." });
+        }
+        return res.json({ ok: true });
+      }
+
+      if (action === "applyReset") {
+        const token = String(b.token || "");
+        const np = String(b.newPassphrase || "").trim();
+        if (!token) return res.status(400).json({ error: "Missing reset token." });
+        if (np.length < 8) return res.status(400).json({ error: "New passphrase must be at least 8 characters." });
+
+        const th = crypto.createHash("sha256").update(token).digest("hex");
+        const snap = await RESET_DOC.get();
+        const d = snap.exists ? snap.data() : null;
+        const valid =
+          d && !d.used && typeof d.expires === "number" && d.expires > Date.now() && d.tokenHash && timingSafeEqualStr(th, d.tokenHash);
+        if (!valid) {
+          return res.status(400).json({ error: "This reset link is invalid or has expired. Please request a new one." });
+        }
+
+        await setAdminPassphrase(np);
+        await RESET_DOC.set({ used: true, usedAt: now() }, { merge: true });
+        notifyPassphraseChanged("reset via an emailed link").catch((e) => console.error("notify failed", e && e.message));
+        return res.json({ ok: true });
+      }
+
+      return res.status(400).json({ error: "Unknown action." });
+    } catch (e) {
+      console.error("reset error", e);
+      return res.status(500).json({ error: "Reset failed. Please try again." });
     }
   }
 );
