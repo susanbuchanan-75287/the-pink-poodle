@@ -201,13 +201,20 @@ textarea { min-height: 74px; resize: vertical; }
 .ticket__actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
 /* ---------- Loyalty ---------- */
-.stamps { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.5rem; margin-top: 0.6rem; }
-.stamp {
-  aspect-ratio: 1; border-radius: 50%; border: 2px dashed var(--pink-soft); display: grid; place-items: center;
-  font-size: 1.3rem; color: var(--pink-soft);
+.loyalty {
+  margin-top: 0.9rem; border-radius: 16px; padding: 1rem 1.1rem;
+  background: linear-gradient(135deg, #fff6ea, #fde7f1);
+  border: 1px solid var(--gold, #c9a34e);
+  box-shadow: 0 6px 20px rgba(201, 163, 78, 0.18);
 }
-.stamp.on { background: linear-gradient(135deg, var(--pink), var(--pink-deep)); border-style: solid; border-color: var(--pink-deep); color: #fff; }
-.stamp.free { background: linear-gradient(135deg, #e6c983, var(--gold)); border-color: var(--gold); color: #3a2230; }
+.loyalty__head { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 1.05rem; color: var(--pink-deep); }
+.loyalty__stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-top: 0.6rem; }
+.loyalty__stat {
+  display: flex; flex-direction: column; align-items: center; gap: 0.15rem;
+  background: rgba(255, 255, 255, 0.7); border-radius: 12px; padding: 0.7rem 0.4rem;
+}
+.loyalty__num { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 1.6rem; color: var(--pink-deep); line-height: 1; }
+.loyalty__lbl { font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-soft); }
 
 /* ---------- Toast + modal ---------- */
 .toast {
@@ -223,7 +230,7 @@ textarea { min-height: 74px; resize: vertical; }
 .empty .big { font-size: 2.5rem; }
 
 /* ---------- Staff subnav + panes ---------- */
-.staff__subnav { position: sticky; top: 56px; z-index: 5; background: var(--bg, #fff8fb); padding: 0.4rem 0; margin-bottom: 0.4rem; }
+.staff__subnav { position: sticky; top: 66px; z-index: 5; background: var(--bg, #fff8fb); padding: 0.4rem 0; margin-bottom: 0.4rem; }
 .staff__pane.hidden { display: none; }
 
 /* ---------- Ledger table ---------- */
@@ -231,3 +238,16 @@ textarea { min-height: 74px; resize: vertical; }
 .ledger th { text-align: left; font-weight: 600; color: var(--ink-soft); border-bottom: 1px solid var(--pink-soft); padding: 0.25rem 0.3rem; }
 .ledger td { padding: 0.25rem 0.3rem; border-bottom: 1px solid #f3e2ea; }
 .ledger tr:last-child td { border-bottom: none; }
+/* ===== Clients CRM ===== */
+.client__contact { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.4rem 0; }
+.petrow { border-top: 1px dashed var(--pink-soft); padding: 0.4rem 0 0.2rem; }
+.petrow:first-of-type { border-top: none; }
+.petrow__name { font-weight: 600; }
+.petrow--edit { display: flex; align-items: center; gap: 0.4rem; border-top: 1px solid #f3e2ea; }
+.vaxbadge { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 0.1rem 0.5rem; border-radius: 999px; white-space: nowrap; }
+.vax--current  { background: #e6f6ea; color: #1c7a37; }
+.vax--expiring { background: #fff3d6; color: #9a6a00; }
+.vax--expired  { background: #fde3e3; color: #b3261e; }
+.vax--unknown  { background: #eee; color: #666; }
+#clPets { margin: 0.2rem 0 0.4rem; }
+#petVaxStatus { min-height: 1.2rem; }

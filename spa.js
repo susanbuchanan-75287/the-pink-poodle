@@ -203,8 +203,10 @@
     $('trackBody').innerHTML = '<p class="muted">Looking up ' + esc(code) + '…</p>';
     api('spaTrack', { code: code }).then(function (res) {
       var t = res.ticket;
+      var loyalty = res.loyalty || { visits: 0, spent: 0 };
+      var loyaltyCard = loyaltyHtml(loyalty, t.petName);
       if (t.cancelled) {
-        $('trackBody').innerHTML = '<div class="card"><div class="track__code">' + esc(t.petName || 'Your pup') + ' · REF ' + esc(t.code) + '</div><p class="muted">This appointment was cancelled. Text 304-921-2748 to rebook.</p></div>';
+        $('trackBody').innerHTML = '<div class="card"><div class="track__code">' + esc(t.petName || 'Your pup') + ' · REF ' + esc(t.code) + '</div><p class="muted">This appointment was cancelled. Text 304-921-2748 to rebook.</p></div>' + loyaltyCard;
         return;
       }
       var steps = STEPS.map(function (label, i) {
@@ -216,7 +218,7 @@
         '<div class="track__status">' + esc(STEPS[t.step] || 'Requested') + (t.step === 5 ? ' 🔔' : '') + '</div>' +
         '<div class="steps">' + steps + '</div>' +
         (canCancel ? '<button class="btn btn--soft btn--sm" id="custCancel" type="button" style="margin-top:0.6rem">Cancel this request</button>' : '') +
-        '</div>';
+        '</div>' + loyaltyCard;
       var cc = $('custCancel');
       if (cc) cc.addEventListener('click', function () {
         if (!confirm('Cancel this appointment?')) return;
@@ -225,6 +227,20 @@
     }).catch(function (err) {
       $('trackBody').innerHTML = '<div class="empty"><div class="big">🔍</div><p>' + esc(err.message || 'No booking found for that code.') + '</p></div>';
     });
+  }
+  function loyaltyHtml(l, petName) {
+    var visits = Number(l.visits) || 0;
+    var spent = Number(l.spent) || 0;
+    if (visits < 1) {
+      return '<div class="loyalty"><div class="loyalty__head">🏆 Loyalty</div>' +
+        '<p class="muted" style="margin:0.2rem 0 0">This will be ' + esc(petName || 'your pup') + '\'s first visit with us — welcome to the pack! 🐩</p></div>';
+    }
+    return '<div class="loyalty"><div class="loyalty__head">🏆 Loyalty</div>' +
+      '<div class="loyalty__stats">' +
+      '<div class="loyalty__stat"><span class="loyalty__num">' + visits + '</span><span class="loyalty__lbl">visit' + (visits === 1 ? '' : 's') + '</span></div>' +
+      '<div class="loyalty__stat"><span class="loyalty__num">' + money(spent) + '</span><span class="loyalty__lbl">spent with us</span></div>' +
+      '</div>' +
+      '<p class="muted" style="margin:0.4rem 0 0">Thank you for pampering ' + esc(petName || 'your pup') + ' with us! 🩷</p></div>';
   }
   $('trackGo').addEventListener('click', doTrack);
   $('trackCode').addEventListener('keydown', function (e) { if (e.key === 'Enter') doTrack(); });
@@ -265,7 +281,7 @@
     document.querySelectorAll('.staff__pane').forEach(function (p) { p.classList.toggle('hidden', p.dataset.sub !== sub); });
     if (sub === 'board') renderBoard();
     if (sub === 'ledger') loadLedger();
-    if (sub === 'contacts') loadContacts();
+    if (sub === 'clients') loadClients();
     if (sub === 'fees') loadFees();
   }
   document.querySelectorAll('#staffSubnav .pill').forEach(function (b) { b.addEventListener('click', function () { showSub(b.dataset.sub); }); });
@@ -458,41 +474,206 @@
   });
 
   /* =================================================================
-     CONTACTS
+     CLIENTS CRM  (owners → pets → vaccination · visits · spend)
      ================================================================= */
-  var contactsCache = [];
-  function loadContacts() {
-    $('contactsBody').innerHTML = '<p class="muted">Loading…</p>';
-    api('spaContacts', { pin: staffPin }).then(function (res) {
-      contactsCache = res.contacts || [];
-      $('contactsBody').innerHTML = contactsCache.length ? contactsCache.map(function (c) {
-        return '<div class="card"><strong>' + esc(c.name || '(no name)') + '</strong>' +
-          '<span class="badge" style="margin-left:0.4rem">' + c.visits + ' visit' + (c.visits === 1 ? '' : 's') + '</span>' +
-          (c.phone ? '<div class="muted">📱 <a href="tel:' + esc(c.phone) + '">' + esc(c.phone) + '</a></div>' : '') +
-          (c.email ? '<div class="muted">✉️ <a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a></div>' : '') +
-          (c.pets && c.pets.length ? '<div class="muted">🐩 ' + esc(c.pets.join(', ')) + '</div>' : '') + '</div>';
-      }).join('') : '<div class="empty"><div class="big">📇</div><p>No contacts yet.</p></div>';
-    }).catch(function (e) { $('contactsBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  var clientsCache = [];
+  var editPets = [];          // pets in the currently-open client modal
+  var editingClientId = '';
+
+  function vaxStatus(exp) {
+    if (!exp) return { cls: 'vax--unknown', icon: '❔', label: 'Rabies: no date on file' };
+    var t = todayISO();
+    if (exp < t) return { cls: 'vax--expired', icon: '⚠️', label: 'Rabies EXPIRED ' + exp };
+    var d = new Date(exp + 'T00:00:00'), soon = new Date(); soon.setDate(soon.getDate() + 30);
+    if (d <= soon) return { cls: 'vax--expiring', icon: '⏳', label: 'Rabies expiring ' + exp };
+    return { cls: 'vax--current', icon: '✅', label: 'Rabies current · ' + exp };
   }
-  $('contactsRefresh').addEventListener('click', loadContacts);
-  $('contactsCsvBtn').addEventListener('click', function () {
-    var rows = [['Name', 'Phone', 'Email', 'Pets', 'Visits']];
-    contactsCache.forEach(function (c) { rows.push([c.name || '', c.phone || '', c.email || '', (c.pets || []).join('; '), c.visits]); });
-    dl('pink-poodle-contacts-' + todayISO() + '.csv', 'text/csv', rows.map(csvRow).join('\r\n'));
+  function smsHref(phone, name) {
+    var msg = 'Hi ' + (name ? name.split(' ')[0] : 'there') + '! It\u2019s The Pink Poodle \uD83D\uDC29 — ';
+    return 'sms:' + String(phone).replace(/[^\d+]/g, '') + '?&body=' + encodeURIComponent(msg);
+  }
+
+  function loadClients() {
+    $('clientsBody').innerHTML = '<p class="muted">Loading…</p>';
+    api('spaClients', { pin: staffPin }).then(function (res) {
+      clientsCache = res.clients || [];
+      clientsCache.sort(function (a, b) { return (a.name || 'zzz').toLowerCase() < (b.name || 'zzz').toLowerCase() ? -1 : 1; });
+      drawClients();
+    }).catch(function (e) { $('clientsBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  function drawClients() {
+    var q = ($('clientSearch').value || '').trim().toLowerCase();
+    var list = clientsCache.filter(function (c) {
+      if (!q) return true;
+      var hay = (c.name || '') + ' ' + (c.phone || '') + ' ' + (c.email || '') + ' ' + (c.pets || []).map(function (p) { return p.name + ' ' + p.breed; }).join(' ');
+      return hay.toLowerCase().indexOf(q) >= 0;
+    });
+    var box = $('clientsBody');
+    if (!list.length) { box.innerHTML = '<div class="empty"><div class="big">📇</div><p>' + (q ? 'No matches.' : 'No clients yet — they appear automatically after the first booking.') + '</p></div>'; return; }
+    box.innerHTML = list.map(function (c, i) {
+      var idx = clientsCache.indexOf(c);
+      var pets = (c.pets || []).map(function (p) {
+        var v = vaxStatus(p.rabiesExpires);
+        return '<div class="petrow"><span class="petrow__name">🐩 ' + esc(p.name || 'Pet') +
+          (p.breed ? ' <span class="muted">· ' + esc(p.breed) + '</span>' : '') +
+          (p.size ? ' <span class="muted">· ' + esc(p.size) + '</span>' : '') + '</span>' +
+          '<span class="vaxbadge ' + v.cls + '">' + v.icon + ' ' + esc(v.label) + '</span>' +
+          (p.temperament ? '<div class="muted">🐾 ' + esc(p.temperament) + '</div>' : '') +
+          (p.notes ? '<div class="muted">📝 ' + esc(p.notes) + '</div>' : '') +
+          (p.vaxNotes ? '<div class="muted">💉 ' + esc(p.vaxNotes) + '</div>' : '') + '</div>';
+      }).join('');
+      var contact = '';
+      if (c.phone) contact += '<a class="btn btn--soft btn--sm" href="tel:' + esc(c.phone) + '">📞 Call</a>' +
+        '<a class="btn btn--soft btn--sm" href="' + esc(smsHref(c.phone, c.name)) + '">💬 Text</a>';
+      if (c.email) contact += '<a class="btn btn--soft btn--sm" href="mailto:' + esc(c.email) + '">✉️ Email</a>';
+      return '<div class="card client">' +
+        '<div class="ticket__top"><strong>' + esc(c.name || '(no name)') + '</strong>' +
+        (c.derived ? '<span class="statuschip statuschip--go" title="From bookings — not yet saved">auto</span>' : '') +
+        '<span class="ticket__code" style="margin-left:auto">' + (c.visits || 0) + ' visit' + ((c.visits || 0) === 1 ? '' : 's') + ' · ' + money(c.spent || 0) + '</span></div>' +
+        (c.phone ? '<div class="muted">📱 ' + esc(c.phone) + '</div>' : '') +
+        (c.notes ? '<div class="muted">🗒️ ' + esc(c.notes) + '</div>' : '') +
+        '<div class="client__contact">' + contact + '</div>' +
+        (pets || '<div class="muted">No pets on file yet.</div>') +
+        '<div class="ticket__actions"><button class="btn btn--gold btn--sm" data-cledit="' + idx + '">✎ Edit / add pet</button>' +
+        (c.derived ? '' : '<button class="btn btn--soft btn--sm" data-cldel="' + idx + '">Delete</button>') + '</div></div>';
+    }).join('');
+    box.querySelectorAll('[data-cledit]').forEach(function (el) { el.addEventListener('click', function () { openClient(clientsCache[Number(el.dataset.cledit)]); }); });
+    box.querySelectorAll('[data-cldel]').forEach(function (el) { el.addEventListener('click', function () {
+      var c = clientsCache[Number(el.dataset.cldel)];
+      if (!c.id || !confirm('Delete ' + (c.name || 'this client') + '? Their visit history on tickets is kept.')) return;
+      api('spaClientDelete', { pin: staffPin, id: c.id }).then(function () { toast('Client deleted'); loadClients(); }).catch(function (e) { toast(e.message); });
+    }); });
+  }
+  $('clientSearch').addEventListener('input', drawClients);
+  $('clientsRefresh').addEventListener('click', loadClients);
+  $('clientAddBtn').addEventListener('click', function () { openClient(null); });
+
+  /* ---- client modal ---- */
+  function openClient(c) {
+    c = c || {};
+    editingClientId = c.id || '';
+    editPets = (c.pets || []).map(function (p) { return Object.assign({}, p); });
+    $('clientModalTitle').textContent = c.name ? 'Edit ' + c.name : 'New client';
+    $('clId').value = c.id || '';
+    $('clName').value = c.name || '';
+    $('clPhone').value = c.phone || '';
+    $('clEmail').value = c.email || '';
+    $('clNotes').value = c.notes || '';
+    $('clDelete').style.display = c.id ? '' : 'none';
+    drawEditPets();
+    $('clientModal').classList.add('open');
+  }
+  function closeClient() { $('clientModal').classList.remove('open'); }
+  function drawEditPets() {
+    $('clPets').innerHTML = editPets.length ? editPets.map(function (p, i) {
+      var v = vaxStatus(p.rabiesExpires);
+      return '<div class="petrow petrow--edit"><span class="petrow__name">🐩 ' + esc(p.name || 'Pet') +
+        (p.breed ? ' <span class="muted">· ' + esc(p.breed) + '</span>' : '') + '</span>' +
+        '<span class="vaxbadge ' + v.cls + '">' + v.icon + '</span>' +
+        '<span style="margin-left:auto"><button class="btn btn--soft btn--sm" data-petedit="' + i + '" type="button">✎</button>' +
+        '<button class="btn btn--soft btn--sm" data-petrm="' + i + '" type="button">✕</button></span></div>';
+    }).join('') : '<p class="muted">No pets yet — add one below.</p>';
+    $('clPets').querySelectorAll('[data-petedit]').forEach(function (el) { el.addEventListener('click', function () { openPet(Number(el.dataset.petedit)); }); });
+    $('clPets').querySelectorAll('[data-petrm]').forEach(function (el) { el.addEventListener('click', function () {
+      editPets.splice(Number(el.dataset.petrm), 1); drawEditPets();
+    }); });
+  }
+  $('clCancel').addEventListener('click', closeClient);
+  $('clAddPet').addEventListener('click', function () { openPet(-1); });
+  $('clDelete').addEventListener('click', function () {
+    if (!editingClientId || !confirm('Delete this client?')) return;
+    api('spaClientDelete', { pin: staffPin, id: editingClientId }).then(function () { toast('Client deleted'); closeClient(); loadClients(); }).catch(function (e) { toast(e.message); });
   });
-  $('contactsVcfBtn').addEventListener('click', function () {
-    var vcf = contactsCache.map(function (c) {
-      var n = c.name || 'Pink Poodle Client';
-      return 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:' + n + '\r\n' +
-        (c.phone ? 'TEL;TYPE=CELL:' + c.phone + '\r\n' : '') +
-        (c.email ? 'EMAIL:' + c.email + '\r\n' : '') +
-        (c.pets && c.pets.length ? 'NOTE:Pets: ' + c.pets.join(', ') + '\r\n' : '') +
-        'END:VCARD';
-    }).join('\r\n');
-    dl('pink-poodle-contacts-' + todayISO() + '.vcf', 'text/vcard', vcf);
+  $('clSave').addEventListener('click', function () {
+    var client = {
+      id: $('clId').value || '',
+      name: $('clName').value.trim(),
+      phone: $('clPhone').value.trim(),
+      email: $('clEmail').value.trim(),
+      notes: $('clNotes').value.trim(),
+      pets: editPets
+    };
+    if (!client.name && !client.phone) { toast('Add a name or phone number.'); return; }
+    api('spaClientSave', { pin: staffPin, client: client }).then(function () { toast('Client saved 💾'); closeClient(); loadClients(); }).catch(function (e) { toast(e.message); });
   });
 
-  function csvRow(arr) { return arr.map(function (v) { v = String(v == null ? '' : v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }
+  /* ---- pet modal (edits into editPets, saved with the client) ---- */
+  var editingPetIdx = -1;
+  function openPet(i) {
+    editingPetIdx = i;
+    var p = i >= 0 ? editPets[i] : {};
+    $('petModalTitle').textContent = i >= 0 ? 'Edit ' + (p.name || 'pet') : 'Add pet';
+    $('petId').value = p.id || '';
+    $('petName').value = p.name || '';
+    $('petBreed').value = p.breed || '';
+    $('petSize').value = p.size || '';
+    $('petTemperament').value = p.temperament || '';
+    $('petNotes').value = p.notes || '';
+    $('petRabies').value = p.rabiesExpires || '';
+    $('petVaxNotes').value = p.vaxNotes || '';
+    petVaxPreview();
+    $('petDelete').style.display = i >= 0 ? '' : 'none';
+    $('petModal').classList.add('open');
+  }
+  function petVaxPreview() {
+    var v = vaxStatus($('petRabies').value);
+    $('petVaxStatus').innerHTML = '<span class="vaxbadge ' + v.cls + '">' + v.icon + ' ' + esc(v.label) + '</span>';
+  }
+  $('petRabies').addEventListener('change', petVaxPreview);
+  $('petCancel').addEventListener('click', function () { $('petModal').classList.remove('open'); });
+  $('petDelete').addEventListener('click', function () {
+    if (editingPetIdx >= 0) { editPets.splice(editingPetIdx, 1); drawEditPets(); }
+    $('petModal').classList.remove('open');
+  });
+  $('petSave').addEventListener('click', function () {
+    var name = $('petName').value.trim();
+    if (!name) { toast('Pet name required.'); return; }
+    var pet = {
+      id: $('petId').value || '',
+      name: name,
+      breed: $('petBreed').value.trim(),
+      size: $('petSize').value,
+      temperament: $('petTemperament').value.trim(),
+      notes: $('petNotes').value.trim(),
+      rabiesExpires: $('petRabies').value || '',
+      vaxNotes: $('petVaxNotes').value.trim()
+    };
+    if (editingPetIdx >= 0) editPets[editingPetIdx] = pet; else editPets.push(pet);
+    $('petModal').classList.remove('open');
+    drawEditPets();
+  });
+
+  $('clientsCsvBtn').addEventListener('click', function () {
+    var rows = [['Owner', 'Phone', 'Email', 'Visits', 'Spent', 'Pet', 'Breed', 'Size', 'RabiesExpires', 'VaxNotes', 'Notes']];
+    clientsCache.forEach(function (c) {
+      if (c.pets && c.pets.length) c.pets.forEach(function (p) {
+        rows.push([c.name || '', c.phone || '', c.email || '', c.visits || 0, c.spent || 0, p.name || '', p.breed || '', p.size || '', p.rabiesExpires || '', p.vaxNotes || '', c.notes || '']);
+      });
+      else rows.push([c.name || '', c.phone || '', c.email || '', c.visits || 0, c.spent || 0, '', '', '', '', '', c.notes || '']);
+    });
+    dl('pink-poodle-clients-' + todayISO() + '.csv', 'text/csv', rows.map(csvRow).join('\r\n'));
+  });
+  $('clientsVcfBtn').addEventListener('click', function () {
+    var vcf = clientsCache.map(function (c) {
+      var n = c.name || 'Pink Poodle Client';
+      var pets = (c.pets || []).map(function (p) { return p.name + (p.rabiesExpires ? ' (rabies ' + p.rabiesExpires + ')' : ''); });
+      var note = (c.visits || 0) + ' visits, ' + money(c.spent || 0) + ' spent' + (pets.length ? '. Pets: ' + pets.join(', ') : '') + (c.notes ? '. ' + c.notes : '');
+      return 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:' + vEsc(n) + '\r\n' +
+        (c.phone ? 'TEL;TYPE=CELL:' + vEsc(c.phone) + '\r\n' : '') +
+        (c.email ? 'EMAIL:' + vEsc(c.email) + '\r\n' : '') +
+        'NOTE:' + vEsc(note) + '\r\n' +
+        'END:VCARD';
+    }).join('\r\n');
+    dl('pink-poodle-clients-' + todayISO() + '.vcf', 'text/vcard', vcf);
+  });
+
+  function csvCell(v) {
+    v = String(v == null ? '' : v);
+    if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+    return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+  function csvRow(arr) { return arr.map(csvCell).join(','); }
+  function vEsc(v) { return String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/([,;])/g, '\\$1'); }
 
   /* =================================================================
      FEES & PIN
@@ -531,5 +712,5 @@
   $('bkDate').min = todayISO(); $('bkDate').value = todayISO();
   renderServices(); renderAddons(); renderStylists(); renderTotal();
   setStaffUI(false);
-  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('spa-sw.js').catch(function () {}); }
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(function () {}); }
 })();

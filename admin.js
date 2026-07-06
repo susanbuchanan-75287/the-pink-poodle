@@ -113,13 +113,15 @@ if (resetToken) {
   $('resetCard').addEventListener('submit', async (e) => {
     e.preventDefault();
     const p1 = $('newPass').value.trim(), p2 = $('newPass2').value.trim();
+    const pin = $('resetPin').value.trim();
     if (p1.length < 8) return setStatus($('resetStatus'), 'Passphrase must be at least 8 characters.', 'err');
     if (p1 !== p2) return setStatus($('resetStatus'), 'The two passphrases don\'t match.', 'err');
+    if (pin && !/^\d{4,8}$/.test(pin)) return setStatus($('resetStatus'), 'Stylist PIN must be 4–8 digits (or leave it blank).', 'err');
     setStatus($('resetStatus'), '<span class="spin"></span>Saving…', 'info');
     try {
-      await resetApi('applyReset', { token: resetToken, newPassphrase: p1 });
+      await resetApi('applyReset', { token: resetToken, newPassphrase: p1, newPin: pin });
       localStorage.removeItem('pp_key');
-      setStatus($('resetStatus'), '✅ Passphrase updated! Redirecting to sign in…', 'ok');
+      setStatus($('resetStatus'), '✅ Updated' + (pin ? ' (passphrase + stylist PIN)' : '') + '! Redirecting to sign in…', 'ok');
       setTimeout(() => { location.href = 'admin.html'; }, 1800);
     } catch (err) {
       setStatus($('resetStatus'), '❌ ' + err.message, 'err');
@@ -134,7 +136,7 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
   document.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== t.dataset.tab));
   if (t.dataset.tab === 'gallery') loadGallery();
   if (t.dataset.tab === 'customers') loadCustomers();
-  if (t.dataset.tab === 'messages') loadHistory();
+  if (t.dataset.tab === 'messages') { loadHistory(); loadPushCount(); }
   if (t.dataset.tab === 'staff') loadStaff();
   if (t.dataset.tab === 'square') loadSquare();
 }));
@@ -284,9 +286,11 @@ function renderCustomers() {
     div.className = 'cust';
     const dogs = (c.dogs || []).map((d) => '<span class="chip">🐾 ' + esc(d.name) + (d.breed ? ' · ' + esc(d.breed) : '') + '</span>').join('');
     const bal = c.balance > 0 ? '<span class="bal bal--owed">Owes $' + c.balance.toFixed(2) + '</span>' : '<span class="bal bal--clear">Paid up</span>';
+    const phoneList = (c.phones && c.phones.length) ? c.phones : (c.phone ? [{ type: 'Mobile', number: c.phone }] : []);
+    const phoneLinks = phoneList.map((p) => '<a href="tel:' + esc(normPhone(p.number)) + '">📞 ' + esc(p.number) + '<span class="muted"> ' + esc(p.type || '') + '</span></a>').join(' · ');
     div.innerHTML =
       '<div class="cust__top"><div><div class="cust__name">' + esc(c.name || 'Unnamed') + '</div>' +
-      '<div class="cust__contact">' + (c.phone ? '<a href="tel:' + esc(normPhone(c.phone)) + '">📞 ' + esc(c.phone) + '</a>' : '') + (c.email ? ' · <a href="mailto:' + esc(c.email) + '">✉️</a>' : '') + '</div></div>' + bal + '</div>' +
+      '<div class="cust__contact">' + phoneLinks + (c.email ? (phoneLinks ? ' · ' : '') + '<a href="mailto:' + esc(c.email) + '">✉️</a>' : '') + '</div></div>' + bal + '</div>' +
       (dogs ? '<div class="chips">' + dogs + '</div>' : '') +
       '<div class="cust__actions">' +
       '<button class="mini" data-a="pickup">💬 Ready</button>' +
@@ -304,6 +308,20 @@ function renderCustomers() {
 
 /* ---- customer editor modal ---- */
 const custModal = $('custModal');
+const PHONE_TYPES = ['Mobile', 'Mobile 2', 'Home', 'Work', 'Other'];
+function phoneRow(p = {}) {
+  const row = document.createElement('div');
+  row.className = 'phonerow';
+  row.style.cssText = 'display:flex;gap:.4rem;margin-bottom:.4rem;align-items:center';
+  const type = p.type || 'Mobile';
+  const opts = PHONE_TYPES.concat(PHONE_TYPES.indexOf(type) < 0 && type ? [type] : [])
+    .map((t) => '<option' + (t === type ? ' selected' : '') + '>' + esc(t) + '</option>').join('');
+  row.innerHTML = '<select style="flex:0 0 auto;min-width:96px">' + opts + '</select>' +
+    '<input type="tel" placeholder="304-555-1234" value="' + esc(p.number || '') + '" style="flex:1" />' +
+    '<button class="mini mini--danger" type="button" title="Remove">✕</button>';
+  row.querySelector('button').addEventListener('click', () => row.remove());
+  return row;
+}
 function dogRow(d = {}) {
   const row = document.createElement('div');
   row.className = 'dogrow';
@@ -325,7 +343,11 @@ function openEditor(c) {
   c = c || { dogs: [], notes: [] };
   $('custModalTitle').textContent = c.id ? 'Edit customer' : 'New customer';
   $('cId').value = c.id || '';
-  $('cName').value = c.name || ''; $('cPhone').value = c.phone || ''; $('cEmail').value = c.email || ''; $('cAddress').value = c.address || '';
+  $('cName').value = c.name || ''; $('cEmail').value = c.email || ''; $('cAddress').value = c.address || '';
+  $('phoneRows').innerHTML = '';
+  const ph = (c.phones && c.phones.length) ? c.phones
+    : (c.phone ? [{ type: 'Mobile', number: c.phone }] : [{ type: 'Mobile' }, { type: 'Mobile 2' }, { type: 'Home' }]);
+  ph.forEach((p) => $('phoneRows').appendChild(phoneRow(p)));
   $('dogRows').innerHTML = '';
   (c.dogs && c.dogs.length ? c.dogs : [{}]).forEach((d) => $('dogRows').appendChild(dogRow(d)));
   editNotes = (c.notes || []).slice();
@@ -335,6 +357,7 @@ function openEditor(c) {
   custModal.classList.add('open');
 }
 $('addDog').addEventListener('click', () => $('dogRows').appendChild(dogRow()));
+$('addPhone').addEventListener('click', () => $('phoneRows').appendChild(phoneRow()));
 $('addNote').addEventListener('click', () => { const v = $('newNote').value.trim(); if (!v) return; editNotes.unshift({ text: v, ts: new Date().toISOString() }); $('newNote').value = ''; renderNotes(); });
 $('cancelCustomer').addEventListener('click', () => custModal.classList.remove('open'));
 custModal.addEventListener('click', (e) => { if (e.target === custModal) custModal.classList.remove('open'); });
@@ -343,12 +366,15 @@ $('saveCustomer').addEventListener('click', async () => {
   const dogs = Array.from($('dogRows').querySelectorAll('.dogrow')).map((r) => {
     const [n, b] = r.querySelectorAll('input'); return { name: n.value.trim(), breed: b.value.trim() };
   }).filter((d) => d.name || d.breed);
+  const phones = Array.from($('phoneRows').querySelectorAll('.phonerow')).map((r) => {
+    return { type: r.querySelector('select').value, number: r.querySelector('input').value.trim() };
+  }).filter((p) => p.number);
   const customer = {
     id: $('cId').value || undefined,
-    name: $('cName').value.trim(), phone: $('cPhone').value.trim(), email: $('cEmail').value.trim(), address: $('cAddress').value.trim(),
+    name: $('cName').value.trim(), phones, email: $('cEmail').value.trim(), address: $('cAddress').value.trim(),
     dogs, notes: editNotes,
   };
-  if (!customer.name && !customer.phone) return setStatus($('custModalStatus'), 'Add at least a name or phone.', 'err');
+  if (!customer.name && !phones.length) return setStatus($('custModalStatus'), 'Add at least a name or phone.', 'err');
   setStatus($('custModalStatus'), '<span class="spin"></span>Saving…', 'info');
   try { await api('crmSave', { customer }); custModal.classList.remove('open'); loadCustomers(); }
   catch (err) { setStatus($('custModalStatus'), '❌ ' + err.message, 'err'); }
@@ -388,7 +414,7 @@ async function afterSend(channel) {
   const c = msgCtx.cust, t = msgCtx.type;
   const amount = t === 'invoice' ? parseFloat($('msgAmount').value || '0') : null;
   try { await api('logMessage', { customerId: c.id, type: t, channel, body: $('msgBody').value, amount }); } catch (_) {}
-  setStatus($('msgStatus'), '✅ Opened in your ' + (channel === 'sms' ? 'Messages' : 'Mail') + ' app & logged.', 'ok');
+  setStatus($('msgStatus'), '✅ Draft opened in your ' + (channel === 'sms' ? 'Messages' : 'Mail') + ' app — tap Send there to deliver it. (Saved to history.)', 'ok');
   loadCustomers();
 }
 $('sendText').addEventListener('click', () => {
@@ -413,8 +439,42 @@ $('blastEmail').addEventListener('click', async () => {
   if (!emails.length) return setStatus($('blastStatus'), 'No customer emails on file yet.', 'err');
   window.location.href = mailtoBcc(emails, SALON + ' 🩷', body);
   try { await api('logMessage', { customerId: null, type: 'promo', channel: 'email', body }); } catch (_) {}
-  setStatus($('blastStatus'), '✅ Opened your Mail app to ' + emails.length + ' customers (BCC) & logged.', 'ok');
+  setStatus($('blastStatus'), '✅ Draft opened in Mail to ' + emails.length + ' customers (BCC — addresses stay private). Tap Send there.', 'ok');
 });
+$('blastSms').addEventListener('click', async () => {
+  const body = $('blastBody').value.trim();
+  if (!body) return setStatus($('blastStatus'), 'Write your message first.', 'err');
+  const nums = [];
+  customers.forEach((c) => {
+    const list = (c.phones && c.phones.length) ? c.phones.map((p) => p.number) : (c.phone ? [c.phone] : []);
+    list.forEach((n) => { const nn = normPhone(n); if (nn && nums.indexOf(nn) < 0) nums.push(nn); });
+  });
+  if (!nums.length) return setStatus($('blastStatus'), 'No customer phone numbers on file yet.', 'err');
+  // Privacy: a multi-recipient sms: opens ONE group text, so every customer would
+  // see each other's numbers. Confirm, and prefer push/BCC-email for real blasts.
+  if (nums.length > 1 && !confirm('Heads up: texting ' + nums.length + ' numbers at once opens a single group message, so customers can see each other\u2019s numbers. For a private blast, use Push or Email (BCC) instead.\n\nOpen a group text anyway?')) return;
+  // Group texts cap out on most phones (~10–20 recipients); warn past that.
+  const sep = isIOS ? '&' : '?';
+  window.location.href = 'sms:' + nums.join(',') + sep + 'body=' + encodeURIComponent(body);
+  try { await api('logMessage', { customerId: null, type: 'promo', channel: 'sms', body }); } catch (_) {}
+  const warn = nums.length > 15 ? ' (⚠️ ' + nums.length + ' numbers — your phone may split this into batches)' : '';
+  setStatus($('blastStatus'), '✅ Group-text draft opened to ' + nums.length + ' customers — tap Send there.' + warn, 'ok');
+});
+$('blastPush').addEventListener('click', async () => {
+  const body = $('blastBody').value.trim();
+  if (!body) return setStatus($('blastStatus'), 'Write your message first.', 'err');
+  if (!confirm('Send this as a push notification to everyone subscribed on the website?')) return;
+  setStatus($('blastStatus'), '<span class="spin"></span>Sending push…', 'info');
+  try {
+    const r = await api('pushBlast', { title: SALON + ' 🩷', body });
+    if (!r.count) setStatus($('blastStatus'), 'No push subscribers yet — customers subscribe via “🔔 Get alerts” on the site.', 'info');
+    else setStatus($('blastStatus'), '✅ Pushed to ' + r.sent + ' device' + (r.sent === 1 ? '' : 's') + (r.failed ? ' (' + r.failed + ' failed/expired)' : '') + ' & logged.', 'ok');
+    loadPushCount();
+  } catch (err) { setStatus($('blastStatus'), '❌ ' + err.message, 'err'); }
+});
+async function loadPushCount() {
+  try { const r = await api('pushCount'); if ($('pushCount')) $('pushCount').textContent = r.count || 0; } catch (_) {}
+}
 $('reloadHistory').addEventListener('click', loadHistory);
 async function loadHistory() {
   const box = $('historyList'); box.innerHTML = '<p class="muted">Loading…</p>';
@@ -456,10 +516,25 @@ $('passForm').addEventListener('submit', async (e) => {
     KEY = p1;
     if (localStorage.getItem('pp_key')) localStorage.setItem('pp_key', p1);
     $('chNewPass').value = ''; $('chNewPass2').value = '';
-    setStatus($('passStatus'), '✅ Passphrase updated. Britni &amp; Susan have been emailed a confirmation.', 'ok');
+    setStatus($('passStatus'), '✅ Passphrase updated. Britni &amp; Susan have been emailed a confirmation, and Susan a private copy.', 'ok');
   } catch (err) {
     setStatus($('passStatus'), '❌ ' + err.message, 'err');
   } finally { $('passBtn').disabled = false; }
+});
+
+$('spaPinForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pin = $('spaNewPin').value.trim();
+  if (!/^\d{4,8}$/.test(pin)) return setStatus($('spaPinStatus'), 'PIN must be 4–8 digits.', 'err');
+  $('spaPinBtn').disabled = true;
+  setStatus($('spaPinStatus'), '<span class="spin"></span>Resetting…', 'info');
+  try {
+    await api('spaPinReset', { newPin: pin });
+    $('spaNewPin').value = '';
+    setStatus($('spaPinStatus'), '✅ Stylist spa PIN reset. A private copy was emailed to Susan.', 'ok');
+  } catch (err) {
+    setStatus($('spaPinStatus'), '❌ ' + err.message, 'err');
+  } finally { $('spaPinBtn').disabled = false; }
 });
 
 /* ================= STAFF & SCHEDULES ================= */
@@ -479,12 +554,30 @@ async function loadStaff() {
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+function isoLocal(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function fmtTime(t) {
+  const m = /^(\d{2}):(\d{2})$/.exec(t || ''); if (!m) return t || '';
+  let h = Number(m[1]); const ap = h >= 12 ? 'pm' : 'am'; h = h % 12 || 12;
+  return h + (m[2] === '00' ? '' : ':' + m[2]) + ap;
+}
+// Opt-in availability: returns {start,end} if the stylist works that date, else null.
+function availFor(s, iso, wd) {
+  const ov = (s.dateHours || {})[iso];
+  if (ov) return ov.on ? { start: ov.start, end: ov.end } : null;
+  const rules = s.recurring || [];
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i];
+    if (r.from <= iso && iso <= r.to && (r.days || []).indexOf(wd) >= 0) return { start: r.start, end: r.end };
+  }
+  return null;
+}
 function offToday(s) {
   const d = new Date();
-  const iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  if ((s.datesOff || []).includes(iso)) return true;
-  if ((s.datesOn || []).includes(iso)) return false;
-  return (s.weeklyOff || []).includes(d.getDay());
+  return !availFor(s, isoLocal(d), d.getDay());
+}
+function hoursToday(s) {
+  const d = new Date();
+  return availFor(s, isoLocal(d), d.getDay());
 }
 
 function renderStaff() {
@@ -493,8 +586,9 @@ function renderStaff() {
   if (!staffCache.length) { box.innerHTML = '<p class="muted">No stylists yet — add one.</p>'; return; }
   box.innerHTML = staffCache.map((s) => {
     const initial = (s.name || '?').trim().charAt(0).toUpperCase();
-    const off = offToday(s);
-    const status = !s.active ? '<span class="chip">Hidden</span>' : (off ? '<span class="chip">Off today</span>' : '<span class="chip">In today</span>');
+    const hrs = s.active ? hoursToday(s) : null;
+    const status = !s.active ? '<span class="chip">Hidden</span>'
+      : (hrs ? '<span class="chip">In ' + esc(fmtTime(hrs.start) + '–' + fmtTime(hrs.end)) + '</span>' : '<span class="chip">Off today</span>');
     return `<div class="staff${s.active ? '' : ' staff__off'}">
       <div class="staff__av">${esc(initial)}</div>
       <div class="staff__main">
@@ -560,46 +654,84 @@ $('staffDelete').addEventListener('click', async () => {
   catch (err) { setStatus($('staffModalStatus'), '❌ ' + err.message, 'err'); }
 });
 
-/* ---- schedule calendar ---- */
-let schedState = null; // { id, weeklyOff:Set, datesOff:Set, datesOn:Set, viewY, viewM }
+/* ---- schedule (opt-in availability with hours + recurring blocks) ---- */
+let schedState = null; // { id, name, recurring:[], dateHours:{}, viewY, viewM, editIso }
 
 function isoOf(y, m, d) { return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
 
-function effStatus(iso, wd) {
-  if (schedState.datesOff.has(iso)) return 'off';
-  if (schedState.datesOn.has(iso)) return 'available';
-  return schedState.weeklyOff.has(wd) ? 'off' : 'available';
+// Effective availability for a date inside the editor (per-date override beats recurring).
+function schedAvail(iso, wd) {
+  const ov = schedState.dateHours[iso];
+  if (ov) return ov.on ? { start: ov.start, end: ov.end } : null;
+  for (let i = 0; i < schedState.recurring.length; i++) {
+    const r = schedState.recurring[i];
+    if (r.from && r.to && r.from <= iso && iso <= r.to && (r.days || []).indexOf(wd) >= 0) return { start: r.start, end: r.end };
+  }
+  return null;
 }
 
 function openSchedModal(id) {
   const s = staffCache.find((x) => x.id === id);
   if (!s) return;
   const nowD = new Date();
+  const dh = {};
+  Object.keys(s.dateHours || {}).forEach((k) => { dh[k] = Object.assign({}, s.dateHours[k]); });
   schedState = {
     id, name: s.name,
-    weeklyOff: new Set(s.weeklyOff || []),
-    datesOff: new Set(s.datesOff || []),
-    datesOn: new Set(s.datesOn || []),
+    recurring: (s.recurring || []).map((r) => ({ days: (r.days || []).slice(), start: r.start || '09:00', end: r.end || '17:00', from: r.from || '', to: r.to || '' })),
+    dateHours: dh,
     viewY: nowD.getFullYear(), viewM: nowD.getMonth(),
+    editIso: null,
   };
   $('schedTitle').textContent = s.name + ' — schedule';
-  document.querySelector('#schedModal .cal__dow').innerHTML = DOW.map((d) => `<span>${d}</span>`).join('');
-  renderWeeklyOff();
+  document.querySelector('#schedModal .cal__dow').innerHTML = DOW.map((d) => `<span>${d.slice(0, 2)}</span>`).join('');
+  renderRecur();
+  hideDayEditor();
   renderCal();
   clr($('schedStatus'));
   $('schedModal').classList.add('open');
 }
 function closeSchedModal() { $('schedModal').classList.remove('open'); }
 
-function renderWeeklyOff() {
-  $('weeklyOff').innerHTML = DOW.map((d, i) => `<button type="button" class="wday${schedState.weeklyOff.has(i) ? ' on' : ''}" data-wd="${i}">${d}</button>`).join('');
-  $('weeklyOff').querySelectorAll('[data-wd]').forEach((b) => b.addEventListener('click', () => {
-    const wd = Number(b.dataset.wd);
-    if (schedState.weeklyOff.has(wd)) schedState.weeklyOff.delete(wd); else schedState.weeklyOff.add(wd);
-    renderWeeklyOff(); renderCal();
+/* --- recurring blocks --- */
+function renderRecur() {
+  const box = $('recurRows');
+  if (!schedState.recurring.length) { box.innerHTML = '<p class="muted" style="margin:.2rem 0">No recurring blocks yet — everyone is off until you add one or open specific days below.</p>'; return; }
+  box.innerHTML = schedState.recurring.map((r, i) => {
+    const days = DOW.map((d, wd) => `<button type="button" class="wday${(r.days || []).indexOf(wd) >= 0 ? ' on' : ''}" data-ri="${i}" data-wd="${wd}">${d.slice(0, 2)}</button>`).join('');
+    return `<div class="recur">
+      <div class="recur__days">${days}</div>
+      <div class="recur__row">
+        <label>From <input type="date" data-ri="${i}" data-k="from" value="${esc(r.from)}"></label>
+        <label>To <input type="date" data-ri="${i}" data-k="to" value="${esc(r.to)}"></label>
+      </div>
+      <div class="recur__row">
+        <label>Hours <input type="time" data-ri="${i}" data-k="start" value="${esc(r.start)}"></label>
+        <span>–</span>
+        <label><input type="time" data-ri="${i}" data-k="end" value="${esc(r.end)}"></label>
+        <button type="button" class="mini recur__del" data-del="${i}">Remove</button>
+      </div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.wday[data-ri]').forEach((b) => b.addEventListener('click', () => {
+    const ri = Number(b.dataset.ri), wd = Number(b.dataset.wd);
+    const days = schedState.recurring[ri].days;
+    const idx = days.indexOf(wd);
+    if (idx >= 0) days.splice(idx, 1); else days.push(wd);
+    renderRecur(); renderCal();
+  }));
+  box.querySelectorAll('input[data-ri]').forEach((inp) => inp.addEventListener('change', () => {
+    const ri = Number(inp.dataset.ri), k = inp.dataset.k;
+    schedState.recurring[ri][k] = inp.value;
+    renderCal();
+  }));
+  box.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => {
+    schedState.recurring.splice(Number(b.dataset.del), 1);
+    renderRecur(); renderCal();
   }));
 }
 
+/* --- month calendar --- */
 function renderCal() {
   const y = schedState.viewY, m = schedState.viewM;
   $('calMonth').textContent = new Date(y, m, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
@@ -612,23 +744,55 @@ function renderCal() {
     const iso = isoOf(y, m, d);
     const wd = new Date(y, m, d).getDay();
     const past = iso < todayIso;
-    const st = effStatus(iso, wd);
-    const cls = 'cal__cell' + (st === 'off' ? ' cal__cell--off' : '') + (past ? ' cal__cell--past' : '');
-    cells += `<div class="${cls}"${past ? '' : ` data-day="${iso}" data-wd="${wd}"`}>${d}</div>`;
+    const av = schedAvail(iso, wd);
+    const sel = schedState.editIso === iso ? ' cal__cell--sel' : '';
+    const cls = 'cal__cell' + (av ? ' cal__cell--on' : ' cal__cell--off') + (past ? ' cal__cell--past' : '') + sel;
+    const hrs = av ? `<span class="cal__hrs">${fmtTime(av.start)}–${fmtTime(av.end)}</span>` : '';
+    cells += `<div class="${cls}"${past ? '' : ` data-day="${iso}" data-wd="${wd}"`}><span>${d}</span>${hrs}</div>`;
   }
   $('calGrid').innerHTML = cells;
-  $('calGrid').querySelectorAll('[data-day]').forEach((c) => c.addEventListener('click', () => toggleDay(c.dataset.day, Number(c.dataset.wd))));
+  $('calGrid').querySelectorAll('[data-day]').forEach((c) => c.addEventListener('click', () => openDayEditor(c.dataset.day, Number(c.dataset.wd))));
 }
 
-function toggleDay(iso, wd) {
-  const before = effStatus(iso, wd);
-  schedState.datesOff.delete(iso);
-  schedState.datesOn.delete(iso);
-  const base = schedState.weeklyOff.has(wd) ? 'off' : 'available';
-  if (before === 'available') { if (base === 'available') schedState.datesOff.add(iso); }
-  else { if (base === 'off') schedState.datesOn.add(iso); }
+/* --- per-day editor --- */
+function openDayEditor(iso, wd) {
+  schedState.editIso = iso;
+  const av = schedAvail(iso, wd);
+  const ov = schedState.dateHours[iso];
+  $('deLabel').textContent = new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  $('deOn').checked = !!av;
+  $('deStart').value = (av && av.start) || '09:00';
+  $('deEnd').value = (av && av.end) || '17:00';
+  $('deClear').style.display = ov ? '' : 'none';
+  const src = ov ? 'a specific override' : (av ? 'a recurring block' : 'off (default)');
+  $('deSource').textContent = 'Currently: ' + src + '.';
+  $('dayEditor').style.display = '';
   renderCal();
 }
+function hideDayEditor() { if (schedState) schedState.editIso = null; $('dayEditor').style.display = 'none'; }
+
+/* --- wiring --- */
+$('addRecur').addEventListener('click', () => {
+  schedState.recurring.push({ days: [], start: '09:00', end: '17:00', from: isoOf(schedState.viewY, schedState.viewM, 1), to: '' });
+  renderRecur(); renderCal();
+});
+$('deApply').addEventListener('click', () => {
+  const iso = schedState.editIso; if (!iso) return;
+  if ($('deOn').checked) {
+    const start = $('deStart').value, end = $('deEnd').value;
+    if (!start || !end || end <= start) { setStatus($('schedStatus'), 'End time must be after start time.', 'err'); return; }
+    schedState.dateHours[iso] = { on: true, start, end };
+  } else {
+    schedState.dateHours[iso] = { on: false };
+  }
+  clr($('schedStatus'));
+  hideDayEditor(); renderCal();
+});
+$('deClear').addEventListener('click', () => {
+  const iso = schedState.editIso; if (iso) delete schedState.dateHours[iso];
+  hideDayEditor(); renderCal();
+});
+$('deClose').addEventListener('click', hideDayEditor);
 
 $('calPrev').addEventListener('click', () => { if (--schedState.viewM < 0) { schedState.viewM = 11; schedState.viewY--; } renderCal(); });
 $('calNext').addEventListener('click', () => { if (++schedState.viewM > 11) { schedState.viewM = 0; schedState.viewY++; } renderCal(); });
@@ -639,9 +803,8 @@ $('schedSave').addEventListener('click', async () => {
   try {
     await api('staffAvailability', {
       id: schedState.id,
-      weeklyOff: Array.from(schedState.weeklyOff),
-      datesOff: Array.from(schedState.datesOff),
-      datesOn: Array.from(schedState.datesOn),
+      recurring: schedState.recurring,
+      dateHours: schedState.dateHours,
     });
     closeSchedModal();
     loadStaff();

@@ -111,7 +111,7 @@
       <div class="staff__subnav pills" id="staffSubnav">
         <button type="button" class="pill sel" data-sub="board">🧼 Board</button>
         <button type="button" class="pill" data-sub="ledger">📒 Ledger</button>
-        <button type="button" class="pill" data-sub="contacts">📇 Contacts</button>
+        <button type="button" class="pill" data-sub="clients">📇 Clients</button>
         <button type="button" class="pill" data-sub="fees">⚙️ Fees &amp; PIN</button>
       </div>
 
@@ -140,16 +140,18 @@
         <div id="ledgerBody" style="margin-top:0.6rem"></div>
       </div>
 
-      <!-- Contacts -->
-      <div class="staff__pane hidden" data-sub="contacts">
-        <h1>Client contacts 📇</h1>
-        <p class="lead">Everyone who has booked, with their pups and visit count.</p>
-        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem">
-          <button class="btn btn--soft btn--sm" id="contactsCsvBtn" type="button">⬇ Export CSV</button>
-          <button class="btn btn--soft btn--sm" id="contactsVcfBtn" type="button">⬇ Export vCard</button>
-          <button class="btn btn--soft btn--sm" id="contactsRefresh" type="button">↻ Refresh</button>
+      <!-- Clients CRM -->
+      <div class="staff__pane hidden" data-sub="clients">
+        <h1>Clients 📇</h1>
+        <p class="lead">Every owner, their pups, vaccination status, visits &amp; spend. Tap to call or text.</p>
+        <div class="field"><input type="search" id="clientSearch" placeholder="🔎 Search name, phone, or pet…" autocomplete="off" /></div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.5rem 0">
+          <button class="btn btn--primary btn--sm" id="clientAddBtn" type="button">＋ New client</button>
+          <button class="btn btn--soft btn--sm" id="clientsCsvBtn" type="button">⬇ CSV</button>
+          <button class="btn btn--soft btn--sm" id="clientsVcfBtn" type="button">⬇ vCard</button>
+          <button class="btn btn--soft btn--sm" id="clientsRefresh" type="button">↻ Refresh</button>
         </div>
-        <div id="contactsBody"></div>
+        <div id="clientsBody"></div>
       </div>
 
       <!-- Fees & PIN -->
@@ -254,6 +256,58 @@
       <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
         <button class="btn btn--soft" id="wiCancel" type="button">Cancel</button>
         <button class="btn btn--primary btn--block" id="wiSave" type="button">Check in</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Client editor modal -->
+  <div class="modal" id="clientModal">
+    <div class="modal__box">
+      <h2 id="clientModalTitle">Client</h2>
+      <input type="hidden" id="clId" />
+      <div class="field"><label>Owner name</label><input type="text" id="clName" placeholder="e.g. Jane Smith" /></div>
+      <div class="row2">
+        <div class="field"><label>Mobile / text</label><input type="tel" id="clPhone" placeholder="(304) 555-1234" inputmode="tel" /></div>
+        <div class="field"><label>Email</label><input type="email" id="clEmail" placeholder="jane@email.com" inputmode="email" /></div>
+      </div>
+      <div class="field"><label>Notes <span class="muted">(preferences, alerts…)</span></label><textarea id="clNotes" placeholder="Prefers morning drop-off; nervous with dryers…"></textarea></div>
+
+      <h2 style="font-size:1rem;margin:0.6rem 0 0.3rem">Pets 🐩</h2>
+      <div id="clPets"></div>
+      <button class="btn btn--soft btn--sm" id="clAddPet" type="button">＋ Add pet</button>
+
+      <div style="display:flex;gap:0.5rem;margin-top:0.9rem">
+        <button class="btn btn--soft" id="clDelete" type="button" style="display:none">Delete</button>
+        <button class="btn btn--soft" id="clCancel" type="button">Cancel</button>
+        <button class="btn btn--primary btn--block" id="clSave" type="button">Save client</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pet editor modal -->
+  <div class="modal" id="petModal">
+    <div class="modal__box">
+      <h2 id="petModalTitle">Pet profile</h2>
+      <input type="hidden" id="petId" />
+      <div class="field"><label>Name</label><input type="text" id="petName" placeholder="e.g. Paris" /></div>
+      <div class="row2">
+        <div class="field"><label>Breed</label><input type="text" id="petBreed" placeholder="Poodle mix" /></div>
+        <div class="field"><label>Size</label>
+          <select id="petSize"><option value="">—</option><option>Small (0–20 lb)</option><option>Medium (20–50 lb)</option><option>Large (50–90 lb)</option><option>X-Large (90+ lb)</option></select>
+        </div>
+      </div>
+      <div class="field"><label>Temperament</label><input type="text" id="petTemperament" placeholder="Friendly, shy, sensitive to nails…" /></div>
+      <div class="field"><label>Grooming notes / allergies</label><textarea id="petNotes" placeholder="Sensitive skin, matting behind ears, loves peanut butter…"></textarea></div>
+      <div class="card" style="background:#fff8ee">
+        <h2 style="font-size:0.95rem;margin:0 0 0.4rem">💉 Vaccination</h2>
+        <div class="field"><label>Rabies expires</label><input type="date" id="petRabies" /></div>
+        <div id="petVaxStatus" style="margin:0.2rem 0 0.4rem"></div>
+        <div class="field"><label>Other vax notes</label><input type="text" id="petVaxNotes" placeholder="DHPP current 3/2026, Bordetella…" /></div>
+      </div>
+      <div style="display:flex;gap:0.5rem;margin-top:0.9rem">
+        <button class="btn btn--soft" id="petDelete" type="button" style="display:none">Delete</button>
+        <button class="btn btn--soft" id="petCancel" type="button">Cancel</button>
+        <button class="btn btn--primary btn--block" id="petSave" type="button">Save pet</button>
       </div>
     </div>
   </div>

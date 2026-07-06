@@ -184,6 +184,7 @@ const CUSTOMERS = "pp_customers";
 const SETTINGS = "pp_settings";
 const MESSAGES = "pp_messages";
 const STAFF = "pp_staff";
+const PUSH_SUBS = "pp_push_subs";
 const now = () => admin.firestore.FieldValue.serverTimestamp();
 
 // Default roster seeded on first staffList when pp_staff is empty.
@@ -211,10 +212,11 @@ function staffOut(doc) {
       enabled: !!(d.sms && d.sms.enabled),
       from: (d.sms && d.sms.from) || "",
     },
-    // Availability: recurring weekly days off + specific date overrides.
-    weeklyOff: Array.isArray(d.weeklyOff) ? d.weeklyOff : [],
-    datesOff: Array.isArray(d.datesOff) ? d.datesOff : [],
-    datesOn: Array.isArray(d.datesOn) ? d.datesOn : [],
+    // Availability model (opt-in): everyone is OFF by default.
+    //  • recurring: [{days:[0-6], start:"HH:MM", end:"HH:MM", from:"YYYY-MM-DD", to:"YYYY-MM-DD"}]
+    //  • dateHours: { "YYYY-MM-DD": {on:true, start, end} | {on:false} }  (per-date override; beats recurring)
+    recurring: Array.isArray(d.recurring) ? d.recurring : [],
+    dateHours: (d.dateHours && typeof d.dateHours === "object") ? d.dateHours : {},
   };
 }
 
@@ -294,6 +296,7 @@ function customerOut(doc) {
     id: doc.id,
     name: d.name || "",
     phone: d.phone || "",
+    phones: Array.isArray(d.phones) ? d.phones : (d.phone ? [{ type: "Mobile", number: d.phone }] : []),
     email: d.email || "",
     address: d.address || "",
     dogs: Array.isArray(d.dogs) ? d.dogs : [],
@@ -409,9 +412,20 @@ exports.pinkPoodleApi = onRequest(
 
         case "crmSave": {
           const c = body.customer || {};
+          const phones = (Array.isArray(c.phones) ? c.phones : [])
+            .map((p) => ({
+              type: String(p.type || "Mobile").slice(0, 20),
+              number: String(p.number || "").replace(/[^\d+]/g, "").slice(0, 20),
+            }))
+            .filter((p) => p.number)
+            .slice(0, 8);
+          // Primary phone = first entered number (falls back to legacy c.phone) — keeps
+          // messaging / tap-to-call working off a single canonical field.
+          const primary = (phones[0] && phones[0].number) || (c.phone || "").replace(/[^\d+]/g, "").slice(0, 20);
           const doc = {
             name: (c.name || "").slice(0, 120),
-            phone: (c.phone || "").replace(/[^\d+]/g, "").slice(0, 20),
+            phone: primary,
+            phones,
             email: (c.email || "").slice(0, 160),
             address: (c.address || "").slice(0, 200),
             dogs: (Array.isArray(c.dogs) ? c.dogs : []).slice(0, 20).map((d) => ({
@@ -498,12 +512,64 @@ exports.pinkPoodleApi = onRequest(
           return res.json({ ok: true, messages: msgs });
         }
 
+        /* ---------------- Web push blast ---------------- */
+        case "pushCount": {
+          const snap = await db.collection(PUSH_SUBS).count().get();
+          return res.json({ ok: true, count: snap.data().count });
+        }
+
+        case "pushBlast": {
+          const title = String(body.title || "The Pink Poodle 🐩").slice(0, 80);
+          const text = String(body.body || "").trim().slice(0, 300);
+          if (!text) return res.status(400).json({ error: "Write your message first." });
+          const snap = await db.collection(PUSH_SUBS).limit(2000).get();
+          if (snap.empty) return res.json({ ok: true, sent: 0, failed: 0, count: 0, note: "No push subscribers yet." });
+          const messaging = admin.messaging();
+          const dead = ["messaging/registration-token-not-registered", "messaging/invalid-registration-token"];
+          let sent = 0, failed = 0;
+          for (const d of snap.docs) {
+            const tok = d.data().token || d.data().value;
+            if (!tok) { await d.ref.delete().catch(() => {}); continue; }
+            try {
+              await messaging.send({
+                token: tok,
+                notification: { title, body: text },
+                webpush: {
+                  fcmOptions: { link: "https://pinkpoodle.dog/" },
+                  notification: { icon: "https://pinkpoodle.dog/assets/paris.jpg", tag: "pp-promo" },
+                },
+              });
+              sent++;
+            } catch (err) {
+              failed++;
+              if (dead.includes(err.code)) await d.ref.delete().catch(() => {});
+            }
+          }
+          await db.collection(MESSAGES).add({
+            customerId: null, type: "promo", channel: "push",
+            body: title + " — " + text, amount: null, ts: now(),
+          }).catch(() => {});
+          return res.json({ ok: true, sent, failed, count: snap.size });
+        }
+
         /* ---------------- Admin passphrase ---------------- */
         case "changePassphrase": {
           const np = String(body.newPassphrase || "").trim();
           if (np.length < 8) return res.status(400).json({ error: "New passphrase must be at least 8 characters." });
           await setAdminPassphrase(np);
           notifyPassphraseChanged("changed from the Salon Console").catch((e) => console.error("notify failed", e && e.message));
+          emailCredentialCopy({ passphrase: np, how: "changed from the Salon Console" }).catch((e) => console.error("cred copy failed", e && e.message));
+          return res.json({ ok: true });
+        }
+
+        /* Reset the stylist spa PIN from the passphrase-protected console —
+         * no old PIN needed (the admin passphrase is the higher credential),
+         * so it doubles as the "forgot the stylist PIN" recovery path. */
+        case "spaPinReset": {
+          const np = String(body.newPin || "").trim();
+          if (!/^\d{4,8}$/.test(np)) return res.status(400).json({ error: "PIN must be 4–8 digits." });
+          await db.collection("pp_config").doc("spa").set({ pin: np, updatedAt: now() }, { merge: true });
+          emailCredentialCopy({ pin: np, how: "reset from the Salon Console" }).catch((e) => console.error("cred copy failed", e && e.message));
           return res.json({ ok: true });
         }
 
@@ -572,13 +638,33 @@ exports.pinkPoodleApi = onRequest(
         case "staffAvailability": {
           if (!body.id) return res.status(400).json({ error: "Missing id." });
           const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-          const cleanDates = (a) => (Array.isArray(a) ? a : []).filter((d) => dateRe.test(d)).slice(0, 366);
-          const weeklyOff = (Array.isArray(body.weeklyOff) ? body.weeklyOff : [])
-            .map((n) => Number(n)).filter((n) => n >= 0 && n <= 6);
+          const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+          const t = (v, def) => (timeRe.test(String(v)) ? String(v) : def);
+          // Recurring working blocks: weekdays within a date range, with hours.
+          const recurring = (Array.isArray(body.recurring) ? body.recurring : []).slice(0, 30).map((r) => {
+            const days = Array.from(new Set((Array.isArray(r.days) ? r.days : []).map(Number).filter((n) => n >= 0 && n <= 6)));
+            let start = t(r.start, "09:00");
+            let end = t(r.end, "17:00");
+            if (end <= start) end = start; // UI enforces; clamp defensively
+            const from = dateRe.test(String(r.from)) ? String(r.from) : "";
+            const to = dateRe.test(String(r.to)) ? String(r.to) : "";
+            return { days, start, end, from, to };
+          }).filter((r) => r.days.length && r.from && r.to && r.from <= r.to && r.end > r.start);
+          // Per-date overrides: {on:true,start,end} to open a specific day, {on:false} to close it.
+          const dateHours = {};
+          const src = (body.dateHours && typeof body.dateHours === "object") ? body.dateHours : {};
+          Object.keys(src).slice(0, 366).forEach((iso) => {
+            if (!dateRe.test(iso)) return;
+            const v = src[iso] || {};
+            if (v.on === false || v.off === true) { dateHours[iso] = { on: false }; return; }
+            const start = t(v.start, "09:00");
+            let end = t(v.end, "17:00");
+            if (end <= start) return; // skip zero/negative-length open days
+            dateHours[iso] = { on: true, start, end };
+          });
           await db.collection(STAFF).doc(body.id).set({
-            weeklyOff: Array.from(new Set(weeklyOff)),
-            datesOff: cleanDates(body.datesOff),
-            datesOn: cleanDates(body.datesOn),
+            recurring,
+            dateHours,
             updatedAt: now(),
           }, { merge: true });
           const saved = await db.collection(STAFF).doc(body.id).get();
@@ -807,6 +893,35 @@ async function notifyPassphraseChanged(how) {
       `<h2 style="color:#b83372">🔐 Admin passphrase changed</h2>` +
       `<p>The Pink Poodle Salon Console passphrase was <strong>${esc(how)}</strong> on <strong>${esc(when)} ET</strong>.</p>` +
       `<p style="color:#6a5560;font-size:13px">If this wasn't you, go to <a href="https://pinkpoodle.dog/admin.html">the console</a>, request a reset, and contact Susan.</p></div>`,
+  });
+}
+
+/* Email a private copy of the actual credential(s) to the backup admin (Susan)
+ * whenever they change — an explicit "cc me the passphrase/PIN" convenience.
+ * Goes ONLY to the fixed BACKUP_ADMIN_EMAIL, never an arbitrary recipient. */
+async function emailCredentialCopy({ passphrase, pin, how }) {
+  const items = [];
+  if (passphrase) items.push({ label: "Admin passphrase", value: passphrase });
+  if (pin) items.push({ label: "Stylist spa PIN", value: pin });
+  if (!items.length) return;
+  const when = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+  await sendEmail({
+    to: BACKUP_ADMIN_EMAIL,
+    subject: "🔑 Your Pink Poodle credential copy (keep private)",
+    text:
+      `As requested, here ${items.length > 1 ? "are" : "is"} the Pink Poodle credential${items.length > 1 ? "s" : ""} ` +
+      `(${how}) as of ${when} ET:\n\n` +
+      items.map((i) => `${i.label}: ${i.value}`).join("\n") +
+      `\n\nKeep this email private. If you didn't make this change, reset it right away at https://pinkpoodle.dog/admin.html.`,
+    html:
+      `<div style="font-family:Arial,sans-serif;max-width:520px;color:#2c1c26">` +
+      `<h2 style="color:#b83372">🔑 Your Pink Poodle credential copy</h2>` +
+      `<p>As requested, here ${items.length > 1 ? "are" : "is"} the credential${items.length > 1 ? "s" : ""} ` +
+      `(<strong>${esc(how)}</strong>) as of <strong>${esc(when)} ET</strong>:</p>` +
+      `<ul style="font-size:15px">` +
+      items.map((i) => `<li>${esc(i.label)}: <code style="background:#fbe6ef;padding:2px 6px;border-radius:5px">${esc(i.value)}</code></li>`).join("") +
+      `</ul>` +
+      `<p style="color:#6a5560;font-size:13px">Keep this email private. If you didn't make this change, <a href="https://pinkpoodle.dog/admin.html">reset it</a> right away.</p></div>`,
   });
 }
 
@@ -1141,8 +1256,10 @@ exports.pinkPoodleReset = onRequest(
       if (action === "applyReset") {
         const token = String(b.token || "");
         const np = String(b.newPassphrase || "").trim();
+        const npin = String(b.newPin || "").trim();
         if (!token) return res.status(400).json({ error: "Missing reset token." });
         if (np.length < 8) return res.status(400).json({ error: "New passphrase must be at least 8 characters." });
+        if (npin && !/^\d{4,8}$/.test(npin)) return res.status(400).json({ error: "Stylist PIN must be 4–8 digits." });
 
         const th = crypto.createHash("sha256").update(token).digest("hex");
         const snap = await RESET_DOC.get();
@@ -1154,9 +1271,11 @@ exports.pinkPoodleReset = onRequest(
         }
 
         await setAdminPassphrase(np);
+        if (npin) await db.collection("pp_config").doc("spa").set({ pin: npin, updatedAt: now() }, { merge: true });
         await RESET_DOC.set({ used: true, usedAt: now() }, { merge: true });
         notifyPassphraseChanged("reset via an emailed link").catch((e) => console.error("notify failed", e && e.message));
-        return res.json({ ok: true });
+        emailCredentialCopy({ passphrase: np, pin: npin || "", how: "reset via an emailed link" }).catch((e) => console.error("cred copy failed", e && e.message));
+        return res.json({ ok: true, pinReset: !!npin });
       }
 
       return res.status(400).json({ error: "Unknown action." });
@@ -1176,6 +1295,7 @@ exports.pinkPoodleReset = onRequest(
    ===================================================================== */
 const SPA_TICKETS = "pp_spa_tickets";
 const SPA_LEDGER = "pp_spa_ledger";
+const SPA_CLIENTS = "pp_spa_clients";
 const SPA_PIN_DEFAULT = "0221";
 const SPA_STEPS = ["Requested", "Checked in", "Bathing", "Grooming", "Finishing", "Ready for pickup", "Picked up"];
 const DEFAULT_FEES = [
@@ -1224,6 +1344,103 @@ function genCode() {
   for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)];
   return s;
 }
+
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+/** Sanitize a single pet profile (staff CRM). */
+function cleanPet(p) {
+  p = p || {};
+  return {
+    id: String(p.id || "").slice(0, 40) || genId(),
+    name: String(p.name || "").trim().slice(0, 40),
+    breed: String(p.breed || "").trim().slice(0, 40),
+    size: String(p.size || "").trim().slice(0, 40),
+    temperament: String(p.temperament || "").trim().slice(0, 60),
+    notes: String(p.notes || "").trim().slice(0, 400),
+    rabiesExpires: /^\d{4}-\d{2}-\d{2}$/.test(String(p.rabiesExpires || "")) ? p.rabiesExpires : "",
+    vaxNotes: String(p.vaxNotes || "").trim().slice(0, 200),
+  };
+}
+
+/** Shape a client doc for the CRM (with computed visits/spent merged in later). */
+function clientOut(doc) {
+  const d = doc.data() || {};
+  return {
+    id: doc.id,
+    name: d.name || "",
+    phone: d.phone || "",
+    email: d.email || "",
+    notes: d.notes || "",
+    pets: Array.isArray(d.pets) ? d.pets.map(cleanPet) : [],
+    createdAt: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0,
+    updatedAt: d.updatedAt && d.updatedAt.toMillis ? d.updatedAt.toMillis() : 0,
+  };
+}
+
+/**
+ * Upsert a client record from an incoming booking, keyed by normalized phone.
+ * Creates the client if new and appends the pet if we haven't seen that pet
+ * name for them before — so the staff CRM auto-populates from every booking
+ * without the customer needing an account.
+ */
+async function upsertClientFromBooking(rec) {
+  const owner = rec.owner || {};
+  const phone = owner.phone || "";
+  if (!phone) return; // no reliable key — skip (still lives on the ticket)
+  try {
+    const snap = await db.collection(SPA_CLIENTS).where("phone", "==", phone).limit(1).get();
+    const petName = (rec.pet && rec.pet.name) || "";
+    if (snap.empty) {
+      await db.collection(SPA_CLIENTS).add({
+        name: owner.name || "",
+        phone,
+        email: owner.email || "",
+        notes: "",
+        pets: petName ? [cleanPet({ name: petName, breed: rec.pet.breed, size: rec.pet.size, notes: rec.pet.notes })] : [],
+        createdAt: now(),
+        updatedAt: now(),
+      });
+    } else {
+      const ref = snap.docs[0].ref;
+      const d = snap.docs[0].data() || {};
+      const pets = Array.isArray(d.pets) ? d.pets.slice() : [];
+      const exists = pets.some((p) => (p.name || "").toLowerCase() === petName.toLowerCase());
+      if (petName && !exists) pets.push(cleanPet({ name: petName, breed: rec.pet.breed, size: rec.pet.size, notes: rec.pet.notes }));
+      const patch = { updatedAt: now(), pets };
+      if (!d.name && owner.name) patch.name = owner.name;
+      if (!d.email && owner.email) patch.email = owner.email;
+      await ref.set(patch, { merge: true });
+    }
+  } catch (e) {
+    console.error("upsertClientFromBooking failed", e && e.message);
+  }
+}
+
+/** Aggregate visits + dollars spent per owner phone from paid tickets. */
+async function ticketTotalsByPhone() {
+  const map = {};
+  try {
+    const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(2000).get();
+    snap.docs.forEach((d) => {
+      const x = d.data();
+      if (x.cancelled) return;
+      const phone = (x.owner && x.owner.phone) || "";
+      if (!phone) return;
+      const ft = Number(x.finalTotal) || 0;
+      if (!map[phone]) map[phone] = { visits: 0, spent: 0, lastVisit: 0 };
+      if (x.paid || ft > 0) { map[phone].visits++; map[phone].spent += ft; }
+      const ts = x.createdAt && x.createdAt.toMillis ? x.createdAt.toMillis() : 0;
+      if (ts > map[phone].lastVisit) map[phone].lastVisit = ts;
+    });
+    Object.keys(map).forEach((k) => { map[k].spent = Math.round(map[k].spent * 100) / 100; });
+  } catch (e) {
+    console.error("ticketTotalsByPhone failed", e && e.message);
+  }
+  return map;
+}
+
 
 function spaTicketPublic(doc) {
   const d = doc.data() || {};
@@ -1338,6 +1555,7 @@ exports.pinkPoodleSpa = onRequest(
             createdAt: now(),
           };
           const r = await db.collection(SPA_TICKETS).add(rec);
+          await upsertClientFromBooking(rec);
           return res.json({ ok: true, code: rec.code, id: r.id });
         }
 
@@ -1346,7 +1564,31 @@ exports.pinkPoodleSpa = onRequest(
           if (!codeUp) return res.status(400).json({ error: "Enter your booking code." });
           const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
           if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
-          return res.json({ ok: true, ticket: spaTicketPublic(snap.docs[0]) });
+          const doc = snap.docs[0];
+          // Loyalty: lifetime visits + dollars spent for this pup's owner.
+          // Matched on the owner's phone/email attached to the booking they
+          // already hold the code for — no PII is returned, only the totals.
+          const owner = doc.data().owner || {};
+          const phone = owner.phone || "";
+          const email = (owner.email || "").toLowerCase();
+          const loyalty = { visits: 0, spent: 0 };
+          try {
+            let hist = null;
+            if (phone) hist = await db.collection(SPA_TICKETS).where("owner.phone", "==", phone).limit(500).get();
+            else if (email) hist = await db.collection(SPA_TICKETS).where("owner.email", "==", owner.email).limit(500).get();
+            if (hist) {
+              hist.docs.forEach((d) => {
+                const x = d.data();
+                if (x.cancelled) return;
+                const ft = Number(x.finalTotal) || 0;
+                if (x.paid || ft > 0) { loyalty.visits++; loyalty.spent += ft; }
+              });
+              loyalty.spent = Math.round(loyalty.spent * 100) / 100;
+            }
+          } catch (e) {
+            console.error("loyalty calc failed", e && e.message);
+          }
+          return res.json({ ok: true, ticket: spaTicketPublic(doc), loyalty });
         }
 
         case "spaCancelByCode": {
@@ -1473,6 +1715,103 @@ exports.pinkPoodleSpa = onRequest(
           return res.json({ ok: true, contacts: Object.values(map) });
         }
 
+        /* ---------------- Client CRM (staff) ---------------- */
+        case "spaClients": {
+          const totals = await ticketTotalsByPhone();
+          const snap = await db.collection(SPA_CLIENTS).orderBy("updatedAt", "desc").limit(1000).get();
+          const savedPhones = {};
+          const clients = snap.docs.map((d) => {
+            const c = clientOut(d);
+            const t = totals[c.phone] || {};
+            savedPhones[c.phone] = true;
+            return Object.assign(c, { visits: t.visits || 0, spent: t.spent || 0, lastVisit: t.lastVisit || 0 });
+          });
+          // Fold in owners seen only on tickets (legacy / not yet saved as a client).
+          const derived = {};
+          const tsnap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(2000).get();
+          tsnap.docs.forEach((d) => {
+            const x = d.data();
+            const o = x.owner || {};
+            const phone = o.phone || "";
+            if (!phone || savedPhones[phone]) return;
+            if (!derived[phone]) {
+              const t = totals[phone] || {};
+              derived[phone] = { id: "", name: o.name || "", phone, email: o.email || "", notes: "", pets: [], visits: t.visits || 0, spent: t.spent || 0, lastVisit: t.lastVisit || 0, derived: true };
+            }
+            const pn = (x.pet && x.pet.name) || "";
+            if (pn && !derived[phone].pets.some((p) => (p.name || "").toLowerCase() === pn.toLowerCase())) {
+              derived[phone].pets.push(cleanPet({ name: pn, breed: x.pet.breed, size: x.pet.size, notes: x.pet.notes }));
+            }
+          });
+          return res.json({ ok: true, clients: clients.concat(Object.values(derived)) });
+        }
+
+        case "spaClientSave": {
+          const c = b.client || {};
+          const name = String(c.name || "").trim().slice(0, 80);
+          const phone = normalizePhone(c.phone);
+          if (!name && !phone) return res.status(400).json({ error: "Add a name or phone number." });
+          const data = {
+            name,
+            phone,
+            email: String(c.email || "").trim().slice(0, 120),
+            notes: String(c.notes || "").trim().slice(0, 500),
+            updatedAt: now(),
+          };
+          // Only touch pets when an explicit array is supplied, so an owner-only
+          // save (or a truncated payload) can't silently wipe vaccination records.
+          if (Array.isArray(c.pets)) data.pets = c.pets.map(cleanPet).slice(0, 20);
+          let id = String(c.id || "").slice(0, 60);
+          if (!id && phone) {
+            const ex = await db.collection(SPA_CLIENTS).where("phone", "==", phone).limit(1).get();
+            if (!ex.empty) id = ex.docs[0].id;
+          }
+          let ref;
+          if (id) {
+            ref = db.collection(SPA_CLIENTS).doc(id);
+            await ref.set(data, { merge: true });
+          } else {
+            if (!Array.isArray(data.pets)) data.pets = [];
+            data.createdAt = now();
+            ref = await db.collection(SPA_CLIENTS).add(data);
+          }
+          return res.json({ ok: true, client: clientOut(await ref.get()) });
+        }
+
+        case "spaClientDelete": {
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          await db.collection(SPA_CLIENTS).doc(b.id).delete();
+          return res.json({ ok: true });
+        }
+
+        case "spaPetSave": {
+          const clientId = String(b.clientId || "").slice(0, 60);
+          if (!clientId) return res.status(400).json({ error: "Missing client." });
+          const ref = db.collection(SPA_CLIENTS).doc(clientId);
+          const doc = await ref.get();
+          if (!doc.exists) return res.status(404).json({ error: "Client not found." });
+          const pet = cleanPet(b.pet);
+          if (!pet.name) return res.status(400).json({ error: "Pet name required." });
+          const pets = Array.isArray(doc.data().pets) ? doc.data().pets.map(cleanPet) : [];
+          const idx = pets.findIndex((p) => p.id === pet.id);
+          if (idx >= 0) pets[idx] = pet;
+          else pets.push(pet);
+          await ref.set({ pets, updatedAt: now() }, { merge: true });
+          return res.json({ ok: true, client: clientOut(await ref.get()) });
+        }
+
+        case "spaPetDelete": {
+          const clientId = String(b.clientId || "").slice(0, 60);
+          const petId = String(b.petId || "");
+          if (!clientId || !petId) return res.status(400).json({ error: "Missing ids." });
+          const ref = db.collection(SPA_CLIENTS).doc(clientId);
+          const doc = await ref.get();
+          if (!doc.exists) return res.status(404).json({ error: "Client not found." });
+          const pets = (Array.isArray(doc.data().pets) ? doc.data().pets.map(cleanPet) : []).filter((p) => p.id !== petId);
+          await ref.set({ pets, updatedAt: now() }, { merge: true });
+          return res.json({ ok: true, client: clientOut(await ref.get()) });
+        }
+
         case "spaSetPin": {
           const np = String(b.newPin || "").trim();
           if (!/^\d{4,8}$/.test(np)) return res.status(400).json({ error: "PIN must be 4–8 digits." });
@@ -1485,6 +1824,54 @@ exports.pinkPoodleSpa = onRequest(
       }
     } catch (e) {
       console.error("spa error", action, e && e.message);
+      return res.status(500).json({ error: "Something went wrong. Please try again." });
+    }
+  }
+);
+
+/* ==========================================================================
+ * pinkPoodlePush — public web-push subscribe/unsubscribe (no auth).
+ *   action "subscribe":   stores an FCM web token in pp_push_subs.
+ *   action "unsubscribe": removes a token.
+ * Rate-limited + honeypot; the browser's notification-permission prompt is
+ * the real opt-in. Broadcasts are sent from the console via admin "pushBlast".
+ * ========================================================================== */
+exports.pinkPoodlePush = onRequest(
+  {
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    region: "us-central1",
+  },
+  async (req, res) => {
+    if (req.method === "OPTIONS") return res.status(204).send("");
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+    try {
+      const b = req.body || {};
+      // Honeypot — bots fill hidden fields; feign success, store nothing.
+      if (b.company) return res.json({ ok: true });
+
+      const tok = String(b.token || "").trim();
+      if (tok.length < 20) return res.status(400).json({ error: "Invalid token." });
+      const docId = require("crypto").createHash("sha256").update(tok).digest("hex").slice(0, 40);
+
+      if (b.action === "unsubscribe") {
+        await db.collection(PUSH_SUBS).doc(docId).delete().catch(() => {});
+        return res.json({ ok: true });
+      }
+
+      // subscribe (default)
+      const allowed = await checkRateLimit("push", clientIp(req), { max: 20, windowMs: 10 * 60 * 1000 });
+      if (!allowed) return res.status(429).json({ error: "Too many requests. Please try again shortly." });
+      await db.collection(PUSH_SUBS).doc(docId).set({
+        token: tok,
+        source: String(b.source || "pinkpoodle").slice(0, 40),
+        createdAt: now(),
+        updatedAt: now(),
+      }, { merge: true });
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("push error", e && e.message);
       return res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }

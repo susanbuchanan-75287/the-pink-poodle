@@ -317,16 +317,16 @@
       </article>
       <article class="lux__card">
         <div class="lux__crest">🛁</div>
-        <h3>The Billionaire Bath</h3>
-        <p class="lux__tagline">A spa bath ritual, head to tail.</p>
+        <h3>The Face &amp; Fanny</h3>
+        <p class="lux__tagline">A fresh tidy-up between full grooms.</p>
         <ul class="lux__list">
-          <li>Warm hydro-bath &amp; premium botanicals</li>
-          <li>Blueberry facial &amp; nail trim</li>
-          <li>Ear cleaning &amp; sanitary tidy</li>
-          <li>Plush blow-dry &amp; brush-out</li>
+          <li>Warm bath &amp; gentle blow-dry</li>
+          <li>Face trim &amp; blueberry facial</li>
+          <li>Sanitary (fanny) tidy &amp; paw neaten</li>
+          <li>Nail trim &amp; ear cleaning</li>
           <li>Finishing cologne &amp; a little bow</li>
         </ul>
-        <a href="sms:+13049212748?&body=Hi%20Britni!%20I'd%20love%20to%20book%20The%20Billionaire%20Bath." class="btn btn--soft lux__btn">Reserve This</a>
+        <a href="sms:+13049212748?&body=Hi%20Britni!%20I'd%20love%20to%20book%20The%20Face%20%26%20Fanny%20package." class="btn btn--soft lux__btn">Reserve This</a>
       </article>
       <article class="lux__card">
         <div class="lux__crest">✨</div>
@@ -501,6 +501,8 @@
         <p><a href="https://www.facebook.com/people/The-Pink-Poodle/61556253292828/" target="_blank" rel="noopener" class="visit__link">📘 Follow on Facebook</a></p>
         <p><a href="https://www.instagram.com/brit.grooming/" target="_blank" rel="noopener" class="visit__link">📸 Follow on Instagram</a></p>
         <a href="https://maps.google.com/?q=708+Stafford+Dr,+Princeton,+WV+24740" target="_blank" rel="noopener" class="btn btn--primary">Get Directions</a>
+        <p style="margin-top:1rem"><button type="button" class="btn btn--soft" id="pushBtn">🔔 Get salon alerts</button></p>
+        <p class="visit__push" id="pushStatus" role="status" aria-live="polite" style="font-size:.82rem;color:var(--ink-soft)"></p>
       </div>
       <div class="visit__map">
         <iframe
@@ -567,6 +569,53 @@
     <img src="" alt="" id="lightboxImg" />
   </div>
 
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+  <script>
+  (function () {
+    var PUSH_ENDPOINT = 'https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodlePush';
+    var VAPID = 'BPhfMyXA0u3qoaknWZToDqkY3gkHosnbGZn-9CtmEd92kVQx69On5GO_H-XdSVFkfSvYtmvcRX1S0m-iSHqea48';
+    var CFG = { apiKey: 'AIzaSyAVU4PeZJI8xqo7YOm8QiKvryEVXuv9gLk', authDomain: 'binditails-da2de.firebaseapp.com', projectId: 'binditails-da2de', storageBucket: 'binditails-da2de.firebasestorage.app', messagingSenderId: '376117416695', appId: '1:376117416695:web:f11c59342cc6a750d739f2' };
+    var btn = document.getElementById('pushBtn'), st = document.getElementById('pushStatus');
+    if (!btn) return;
+    function say(m) { if (st) st.textContent = m; }
+    if (!('serviceWorker' in navigator) || !('Notification' in window) || !window.firebase || !firebase.messaging) { btn.style.display = 'none'; return; }
+    var isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+    var isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
+    var messaging = null, subscribed = (Notification.permission === 'granted');
+    function setLabel() { btn.textContent = subscribed ? '🔕 Turn off alerts' : '🔔 Get salon alerts'; }
+    setLabel();
+    function getMessaging() { if (!firebase.apps.length) firebase.initializeApp(CFG); if (!messaging) messaging = firebase.messaging(); return messaging; }
+    async function subscribe() {
+      if (isIOS && !isStandalone) { say('On iPhone/iPad: tap Share → “Add to Home Screen,” open it from there, then tap this again. 🐩'); return; }
+      say('Setting up your alerts…');
+      try {
+        var perm = await Notification.requestPermission();
+        if (perm !== 'granted') { say('No problem — allow notifications anytime to get salon alerts.'); return; }
+        var reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        var token = await getMessaging().getToken({ vapidKey: VAPID, serviceWorkerRegistration: reg });
+        if (!token) { say('Couldn\u2019t set up alerts — please try again.'); return; }
+        var r = await fetch(PUSH_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'subscribe', token: token, source: 'pinkpoodle' }) });
+        if (!r.ok) throw new Error('subscribe failed');
+        subscribed = true; setLabel();
+        say('✅ You\u2019re in! We\u2019ll only send salon openings & specials — no spam. Tap “Turn off alerts” anytime.');
+      } catch (e) { say('Couldn\u2019t set up alerts right now — please try again.'); }
+    }
+    async function unsubscribe() {
+      say('Turning off your alerts…');
+      try {
+        var token = await getMessaging().getToken({ vapidKey: VAPID }).catch(function () { return null; });
+        if (token) {
+          await fetch(PUSH_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'unsubscribe', token: token }) }).catch(function () {});
+          await getMessaging().deleteToken().catch(function () {});
+        }
+        subscribed = false; setLabel();
+        say('You\u2019re unsubscribed — you won\u2019t get salon alerts anymore. Tap again to opt back in.');
+      } catch (e) { say('Couldn\u2019t turn off alerts right now — please try again.'); }
+    }
+    btn.addEventListener('click', function () { subscribed ? unsubscribe() : subscribe(); });
+  })();
+  </script>
   <script src="script.js"></script>
 </body>
 </html>
