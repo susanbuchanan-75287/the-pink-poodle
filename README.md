@@ -81,6 +81,15 @@ Everything below is live in `pinkPoodleSpa` (Firestore-backed, nothing local):
 
 This batch was hardened over an iterative **v-board review loop** (5 rounds, code-review + design passes) until convergence: fail-open verify → fail-closed; groomer vax visibility added; safety fields surfaced on the board/card/CSV; verified vax persisted to profile; lost-update race closed with a Firestore transaction.
 
+## Virtual Tip Jar 💝 (Venmo + Cash App)
+Clients asked for a cashless way to tip Britni, so the site now has a proper on-brand digital tip jar (no software fees, no card surcharge — tips go straight to the groomer):
+
+- **Homepage section** (`index.html` `#tip`, linked from the primary + mobile nav) with two "mason jar" cards — **Venmo `@BRITNIXO`** and **Cash App `$BRITNIXO`** — each with a freshly generated crisp QR code and a tap-to-tip deep link (`venmo.com/u/BRITNIXO`, `cash.app/$BRITNIXO`).
+- **Standalone shareable page** `tip.html` (→ `thepinkpoodle.dog/tip.html`) for a counter QR sign or a link in a text/receipt — larger 220px QR codes, same two options, "back to site" link. Added to `sitemap.xml`.
+- **QR codes** are static SVGs (`assets/tip-venmo.svg`, `assets/tip-cashapp.svg`) generated offline with the `qrcode` lib at error-correction level H — no runtime third-party dependency and no tracking.
+- Pure HTML/CSS (no JS, no backend change). Reviewed via a board round (round 6): verified the deep-link URL formats are valid/safe and the markup is well-formed; fixed two non-blocking items — the Venmo CTA now uses a solid `--pink-deep` background (passes WCAG contrast) and the standalone page renders QR at the intended 220px.
+
+
 ## Retention & operations level-up 🚀 (Bundle B)
 Benchmarked against the top US grooming platforms (MoeGo, Gingr, Pawfinity, Groomer.io, DaySmart), the spa app now matches or beats the paid tools on the retention/automation layer — all built into the existing `pinkPoodleSpa` function, no new SaaS subscription. Everything is fully implemented and live:
 

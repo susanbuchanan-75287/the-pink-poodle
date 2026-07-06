@@ -470,3 +470,18 @@ a { color: inherit; text-decoration: none; }
 .vax__file { margin: 0 0 0.4rem 1.7rem; }
 .vax__file input[type=file] { max-width: 100%; }
 .vax__hint { display: block; font-size: 0.72rem; opacity: 0.65; margin-top: 0.25rem; }
+
+/* ===== Virtual Tip Jar ===== */
+.tipjar { background: linear-gradient(180deg, var(--blush) 0%, var(--cream) 100%); text-align: center; }
+.tipjar__grid { display: flex; flex-wrap: wrap; gap: 1.6rem; justify-content: center; max-width: 760px; margin: 2rem auto 0; }
+.tipjar__jar { position: relative; flex: 1 1 260px; max-width: 320px; background: #fff; border: 2px solid var(--pink-soft); border-radius: 26px; padding: 2.4rem 1.4rem 1.6rem; box-shadow: 0 18px 44px rgba(184,51,114,0.12); }
+.tipjar__lid { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); width: 96px; height: 26px; background: var(--pink-soft); border-radius: 8px 8px 4px 4px; display: flex; align-items: center; justify-content: center; }
+.tipjar__bow { font-size: 1.1rem; }
+.tipjar__qr { background: #fff; border-radius: 16px; padding: 0.6rem; display: inline-block; }
+.tipjar__qr img { display: block; width: 200px; height: 200px; max-width: 100%; }
+.tipjar__name { font-family: var(--serif, "Playfair Display", serif); margin: 1rem 0 0.1rem; font-size: 1.4rem; color: var(--pink-deep); }
+.tipjar__handle { font-weight: 700; letter-spacing: 0.04em; color: var(--ink-soft); margin: 0 0 1rem; }
+.tipjar__btn { width: 100%; }
+.tipjar__btn.btn--primary { background: var(--pink-deep); }
+.tipjar__note { margin-top: 1.6rem; color: var(--ink-soft); font-size: 0.9rem; }
+@media (max-width: 560px) { .tipjar__jar { flex-basis: 100%; max-width: 360px; } }

@@ -19,4 +19,10 @@
       <image:title>Paris the toy poodle, The Pink Poodle mascot</image:title>
     </image:image>
   </url>
+  <url>
+    <loc>https://thepinkpoodle.dog/tip.html</loc>
+    <lastmod>2026-07-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
 </urlset>

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="format-detection" content="telephone=yes" />
+  <title>Virtual Tip Jar | The Pink Poodle 🐩 Princeton, WV</title>
+  <meta name="description" content="Leave a tip for Britni at The Pink Poodle — tap to tip on Venmo (@BRITNIXO) or Cash App ($BRITNIXO), or scan the QR code. Tips are never expected, always appreciated. 🩷" />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#e75a9c" />
+  <link rel="canonical" href="https://thepinkpoodle.dog/tip.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Virtual Tip Jar · The Pink Poodle" />
+  <meta property="og:description" content="Tap to tip Britni on Venmo or Cash App, or scan at the salon. Thank you! 🐩" />
+  <meta property="og:url" content="https://thepinkpoodle.dog/tip.html" />
+  <meta property="og:image" content="https://thepinkpoodle.dog/assets/paris.jpg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Parisienne&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .tippage { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2.4rem 1rem 3rem; background: linear-gradient(180deg, var(--blush) 0%, var(--cream) 60%); }
+    .tippage__brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--serif, "Playfair Display", serif); font-size: 1.4rem; color: var(--pink-deep); margin-bottom: 0.6rem; text-decoration: none; }
+    .tippage__script { font-family: "Parisienne", cursive; color: var(--pink); font-size: clamp(2.2rem, 7vw, 3.4rem); line-height: 1; margin: 0; }
+    .tippage__sub { color: var(--ink-soft); max-width: 460px; text-align: center; margin: 0.6rem auto 0; }
+    .tippage__back { margin-top: 1.8rem; color: var(--ink-soft); }
+    .tippage .tipjar__qr img { width: 220px; height: 220px; }
+  </style>
+</head>
+<body>
+  <main class="tippage">
+    <a href="/" class="tippage__brand"><span>🐩</span> The Pink Poodle</a>
+    <p class="tippage__script">Virtual Tip Jar</p>
+    <p class="tippage__sub">Loved your pup's groom? Tips are never expected — but always so appreciated. Tap to tip Britni, or scan a jar. 🩷</p>
+    <div class="tipjar__grid" style="margin-top:2rem">
+      <article class="tipjar__jar">
+        <div class="tipjar__lid"><span class="tipjar__bow">🎀</span></div>
+        <div class="tipjar__qr"><img src="assets/tip-venmo.svg" width="220" height="220" alt="Scan to tip on Venmo — @BRITNIXO" decoding="async" /></div>
+        <h3 class="tipjar__name">Venmo</h3>
+        <p class="tipjar__handle">@BRITNIXO</p>
+        <a class="btn btn--primary tipjar__btn" href="https://venmo.com/u/BRITNIXO" target="_blank" rel="noopener">💙 Tip on Venmo</a>
+      </article>
+      <article class="tipjar__jar">
+        <div class="tipjar__lid"><span class="tipjar__bow">🎀</span></div>
+        <div class="tipjar__qr"><img src="assets/tip-cashapp.svg" width="220" height="220" alt="Scan to tip on Cash App — $BRITNIXO" decoding="async" /></div>
+        <h3 class="tipjar__name">Cash App</h3>
+        <p class="tipjar__handle">$BRITNIXO</p>
+        <a class="btn btn--gold tipjar__btn" href="https://cash.app/$BRITNIXO" target="_blank" rel="noopener">💚 Tip on Cash App</a>
+      </article>
+    </div>
+    <p class="tipjar__note">100% of tips go straight to your groomer. 🐾</p>
+    <p class="tippage__back"><a href="/" class="visit__link">← Back to The Pink Poodle</a></p>
+  </main>
+</body>
+</html>
