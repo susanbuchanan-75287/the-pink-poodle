@@ -790,6 +790,8 @@ exports.pinkPoodleBook = onRequest(
       const dog = String(b.dogName || b.dog || "").trim().slice(0, 60);
       const breed = String(b.breed || "").trim().slice(0, 60);
       const service = String(b.service || "").trim().slice(0, 60);
+      const stylist = String(b.stylist || "").trim().slice(0, 40);
+      const source = String(b.source || "").trim().slice(0, 30);
       const when = String(b.prefDate || b.when || "").trim().slice(0, 120);
       const bookDate = String(b.bookDate || "").trim().slice(0, 10);
       const bookTime = String(b.bookTime || "").trim().slice(0, 5);
@@ -806,7 +808,7 @@ exports.pinkPoodleBook = onRequest(
       // 1) Log the request
       try {
         await db.collection("pp_bookings").add({
-          name, phone, email, dog, breed, service, prefDate: when, notes,
+          name, phone, email, dog, breed, service, stylist, source, prefDate: when, notes,
           test: testMode,
           ua: String(req.headers["user-agent"] || "").slice(0, 300),
           ts: now(),
@@ -869,6 +871,7 @@ exports.pinkPoodleBook = onRequest(
         ["Name", name],
         ["Phone", phoneRaw],
         ["Email", email],
+        ["Requested stylist", stylist],
         ["Dog", [dog, breed].filter(Boolean).join(" · ")],
         ["Service", service],
         ["Preferred", when],
@@ -907,7 +910,7 @@ exports.pinkPoodleBook = onRequest(
       let emailed = false;
       try {
         await sendOwnerEmail({
-          subject: `${tag}🐩 New booking: ${name}${service ? " — " + service : ""}`,
+          subject: `${tag}🐩 New booking: ${name}${stylist ? " → " + stylist : ""}${service ? " — " + service : ""}`,
           html,
           text: textBody,
           replyTo: email ? { email, name } : undefined,
@@ -924,6 +927,7 @@ exports.pinkPoodleBook = onRequest(
           await sendOwnerSms(
             `${tag}🐩 New booking: ${name}` +
               (phoneRaw ? ` (${phoneRaw})` : "") +
+              (stylist ? ` → wants ${stylist}` : "") +
               (service ? ` — ${service}` : "") +
               (when ? `, ${when}` : "") +
               ` · via pinkpoodle.dog` +

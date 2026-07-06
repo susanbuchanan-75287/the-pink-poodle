@@ -227,7 +227,7 @@
         <p class="team__role">Owner &amp; Groomer</p>
         <p class="team__tags">Grooms · Baths · De-Shed</p>
         <div class="team__actions">
-          <a href="sms:+13049212748" class="btn btn--primary">💬 Text</a>
+          <a href="sms:+13049212748" class="btn btn--primary js-team-text" data-name="Britni" data-phone="+13049212748">💬 Text</a>
           <a href="tel:+13049212748" class="btn btn--soft">📞 Call</a>
         </div>
         <p class="team__phone">(304) 921-2748</p>
@@ -238,7 +238,7 @@
         <p class="team__role">Groomer &amp; Stylist</p>
         <p class="team__tags">Grooms · Baths · De-Shed</p>
         <div class="team__actions">
-          <a href="sms:+13048094041" class="btn btn--primary">💬 Text</a>
+          <a href="sms:+13048094041" class="btn btn--primary js-team-text" data-name="Jenefer" data-phone="+13048094041">💬 Text</a>
           <a href="tel:+13048094041" class="btn btn--soft">📞 Call</a>
         </div>
         <p class="team__phone">(304) 809-4041</p>
@@ -249,7 +249,7 @@
         <p class="team__role">Bath &amp; Spa Specialist</p>
         <p class="team__tags">Baths · Nails · De-Shed Treatments</p>
         <div class="team__actions">
-          <a href="sms:+13048001778" class="btn btn--primary">💬 Text</a>
+          <a href="sms:+13048001778" class="btn btn--primary js-team-text" data-name="Hannah" data-phone="+13048001778">💬 Text</a>
           <a href="tel:+13048001778" class="btn btn--soft">📞 Call</a>
         </div>
         <p class="team__phone">(304) 800-1778</p>
@@ -532,6 +532,32 @@
 
   <!-- Sticky mobile book bar -->
   <a href="#book" class="fab">📲 Book Now</a>
+
+  <!-- Text-a-stylist form (shown on desktop; mobile deep-links to Messages) -->
+  <div class="tmodal" id="teamTextModal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="ttTitle">
+    <div class="tmodal__box">
+      <button class="tmodal__close" id="ttClose" aria-label="Close">✕</button>
+      <h3 class="tmodal__title" id="ttTitle">Text Britni 💬</h3>
+      <p class="tmodal__sub">Send your request and <span id="ttStylist">Britni</span> will text you back to confirm.</p>
+      <form id="teamTextForm" novalidate>
+        <div class="field">
+          <label for="ttName">Your name</label>
+          <input type="text" id="ttName" autocomplete="name" placeholder="Jane Doe" required />
+        </div>
+        <div class="field">
+          <label for="ttPhone">Your mobile number</label>
+          <input type="tel" id="ttPhone" autocomplete="tel" inputmode="tel" placeholder="(304) 555-0123" required />
+        </div>
+        <input type="text" id="ttCompany" class="field--hp" tabindex="-1" autocomplete="off" aria-hidden="true" />
+        <div class="field">
+          <label for="ttMessage">Message</label>
+          <textarea id="ttMessage" rows="3"></textarea>
+        </div>
+        <button type="submit" class="btn btn--primary btn--block" id="ttSend">🩷 Send to <span id="ttSendName">Britni</span></button>
+        <p class="tmodal__status" id="ttStatus" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </div>
 
   <!-- Lightbox -->
   <div class="lightbox" id="lightbox" aria-hidden="true">

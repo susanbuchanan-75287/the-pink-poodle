@@ -107,6 +107,95 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
+// ===== Team: text a stylist (mobile deep-link, desktop pop-up form) =====
+(function () {
+  const APPT_MSG = "Hi! I'd like to schedule an appointment at The Pink Poodle.";
+  const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent);
+  const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const modal = document.getElementById('teamTextModal');
+
+  const smsTo = (phone, body) => `sms:${phone}${isiOS ? '&' : '?'}body=${encodeURIComponent(body)}`;
+
+  document.querySelectorAll('.js-team-text').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      const name = a.dataset.name || 'the salon';
+      const phone = a.dataset.phone || ('+1' + SALON_PHONE);
+      e.preventDefault();
+      if (isMobile) {
+        // Open Messages pre-filled with the appointment request.
+        window.location.href = smsTo(phone, APPT_MSG);
+      } else if (modal) {
+        openTextModal(name, phone);
+      } else {
+        window.location.href = smsTo(phone, APPT_MSG);
+      }
+    });
+  });
+
+  if (!modal) return;
+
+  const ttForm = document.getElementById('teamTextForm');
+  const ttStatus = document.getElementById('ttStatus');
+  const ttSend = document.getElementById('ttSend');
+  let current = { name: '', phone: '' };
+
+  const setTt = (msg, kind) => {
+    ttStatus.textContent = msg;
+    ttStatus.className = 'tmodal__status' + (kind ? ' tmodal__status--' + kind : '');
+  };
+  const closeTextModal = () => {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+  };
+  window.openTextModal = function (name, phone) {
+    current = { name, phone };
+    document.getElementById('ttStylist').textContent = name;
+    document.getElementById('ttSendName').textContent = name;
+    document.getElementById('ttTitle').textContent = `Text ${name} 💬`;
+    document.getElementById('ttMessage').value = APPT_MSG;
+    setTt('');
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    setTimeout(() => document.getElementById('ttName').focus(), 60);
+  };
+
+  document.getElementById('ttClose').addEventListener('click', closeTextModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeTextModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.classList.contains('open')) closeTextModal(); });
+
+  ttForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = (document.getElementById('ttName').value || '').trim();
+    const phone = (document.getElementById('ttPhone').value || '').trim();
+    const message = (document.getElementById('ttMessage').value || '').trim();
+    const company = document.getElementById('ttCompany').value; // honeypot
+    if (!name) { document.getElementById('ttName').focus(); return; }
+    if (!phone) { setTt('Please add your mobile number so we can text you back.', 'err'); document.getElementById('ttPhone').focus(); return; }
+    ttSend.disabled = true;
+    setTt('Sending…');
+    try {
+      const res = await fetch(BOOK_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ownerName: name, phone, stylist: current.name, notes: message, company, source: 'team-text' })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        setTt(`🩷 Sent! ${current.name} got your request and will text you back.`, 'ok');
+        ttForm.reset();
+        setTimeout(closeTextModal, 2600);
+      } else {
+        throw new Error(data.error || 'send failed');
+      }
+    } catch (err) {
+      const dial = (current.phone || '').replace(/^\+1/, '');
+      setTt('Sorry — that didn\'t go through. Please text ' + dial + ' directly.', 'err');
+    } finally {
+      ttSend.disabled = false;
+    }
+  });
+})();
+
 // ===== Gallery: render from manifest, then lightbox =====
 const lightbox = document.getElementById('lightbox');
 const lightboxImg = document.getElementById('lightboxImg');
