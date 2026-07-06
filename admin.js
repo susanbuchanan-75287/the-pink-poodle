@@ -135,6 +135,7 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
   if (t.dataset.tab === 'gallery') loadGallery();
   if (t.dataset.tab === 'customers') loadCustomers();
   if (t.dataset.tab === 'messages') loadHistory();
+  if (t.dataset.tab === 'staff') loadStaff();
   if (t.dataset.tab === 'square') loadSquare();
 }));
 
@@ -459,6 +460,193 @@ $('passForm').addEventListener('submit', async (e) => {
   } catch (err) {
     setStatus($('passStatus'), '❌ ' + err.message, 'err');
   } finally { $('passBtn').disabled = false; }
+});
+
+/* ================= STAFF & SCHEDULES ================= */
+let staffCache = [];
+
+async function loadStaff() {
+  const box = $('staffList');
+  box.innerHTML = '<p class="muted">Loading…</p>';
+  try {
+    const r = await api('staffList');
+    staffCache = r.staff || [];
+    renderStaff();
+  } catch (err) {
+    box.innerHTML = '<p class="status show err">❌ ' + esc(err.message) + '</p>';
+  }
+}
+
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function offToday(s) {
+  const d = new Date();
+  const iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  if ((s.datesOff || []).includes(iso)) return true;
+  if ((s.datesOn || []).includes(iso)) return false;
+  return (s.weeklyOff || []).includes(d.getDay());
+}
+
+function renderStaff() {
+  const box = $('staffList');
+  $('staffAddBtn').disabled = staffCache.length >= 10;
+  if (!staffCache.length) { box.innerHTML = '<p class="muted">No stylists yet — add one.</p>'; return; }
+  box.innerHTML = staffCache.map((s) => {
+    const initial = (s.name || '?').trim().charAt(0).toUpperCase();
+    const off = offToday(s);
+    const status = !s.active ? '<span class="chip">Hidden</span>' : (off ? '<span class="chip">Off today</span>' : '<span class="chip">In today</span>');
+    return `<div class="staff${s.active ? '' : ' staff__off'}">
+      <div class="staff__av">${esc(initial)}</div>
+      <div class="staff__main">
+        <div class="staff__name">${esc(s.name)} ${status}</div>
+        <div class="staff__role">${esc(s.role || '')}${s.phone ? ' · ' + esc(s.phone) : ''}</div>
+      </div>
+      <div class="staff__actions">
+        <button class="mini" data-sched="${esc(s.id)}" type="button">📅 Schedule</button>
+        <button class="mini" data-edit="${esc(s.id)}" type="button">Edit</button>
+      </div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => openStaffModal(b.dataset.edit)));
+  box.querySelectorAll('[data-sched]').forEach((b) => b.addEventListener('click', () => openSchedModal(b.dataset.sched)));
+}
+
+/* ---- stylist editor ---- */
+function openStaffModal(id) {
+  const s = staffCache.find((x) => x.id === id) || {};
+  $('staffModalTitle').textContent = id ? ('Edit ' + (s.name || 'stylist')) : 'New stylist';
+  $('sfId').value = id || '';
+  $('sfName').value = s.name || '';
+  $('sfRole').value = s.role || '';
+  $('sfPhone').value = s.phone || '';
+  $('sfTags').value = s.tags || '';
+  $('sfActive').checked = s.active !== false;
+  $('sfSquareId').value = s.squareTeamMemberId || '';
+  $('sfSmsFrom').value = (s.sms && s.sms.from) || '';
+  $('sfSmsEnabled').checked = !!(s.sms && s.sms.enabled);
+  $('staffDelete').style.display = id ? '' : 'none';
+  clr($('staffModalStatus'));
+  $('staffModal').classList.add('open');
+}
+function closeStaffModal() { $('staffModal').classList.remove('open'); }
+
+$('staffAddBtn').addEventListener('click', () => openStaffModal(''));
+$('staffCancel').addEventListener('click', closeStaffModal);
+$('staffSave').addEventListener('click', async () => {
+  const staff = {
+    id: $('sfId').value || undefined,
+    name: $('sfName').value.trim(),
+    role: $('sfRole').value.trim(),
+    phone: $('sfPhone').value.trim(),
+    tags: $('sfTags').value.trim(),
+    active: $('sfActive').checked,
+    squareTeamMemberId: $('sfSquareId').value.trim(),
+    sms: { enabled: $('sfSmsEnabled').checked, from: $('sfSmsFrom').value.trim() },
+  };
+  if (!staff.name) return setStatus($('staffModalStatus'), 'Please add a name.', 'err');
+  $('staffSave').disabled = true;
+  setStatus($('staffModalStatus'), '<span class="spin"></span>Saving…', 'info');
+  try {
+    await api('staffSave', { staff });
+    closeStaffModal();
+    loadStaff();
+  } catch (err) { setStatus($('staffModalStatus'), '❌ ' + err.message, 'err'); }
+  finally { $('staffSave').disabled = false; }
+});
+$('staffDelete').addEventListener('click', async () => {
+  const id = $('sfId').value;
+  if (!id || !confirm('Remove this stylist?')) return;
+  try { await api('staffDelete', { id }); closeStaffModal(); loadStaff(); }
+  catch (err) { setStatus($('staffModalStatus'), '❌ ' + err.message, 'err'); }
+});
+
+/* ---- schedule calendar ---- */
+let schedState = null; // { id, weeklyOff:Set, datesOff:Set, datesOn:Set, viewY, viewM }
+
+function isoOf(y, m, d) { return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
+
+function effStatus(iso, wd) {
+  if (schedState.datesOff.has(iso)) return 'off';
+  if (schedState.datesOn.has(iso)) return 'available';
+  return schedState.weeklyOff.has(wd) ? 'off' : 'available';
+}
+
+function openSchedModal(id) {
+  const s = staffCache.find((x) => x.id === id);
+  if (!s) return;
+  const nowD = new Date();
+  schedState = {
+    id, name: s.name,
+    weeklyOff: new Set(s.weeklyOff || []),
+    datesOff: new Set(s.datesOff || []),
+    datesOn: new Set(s.datesOn || []),
+    viewY: nowD.getFullYear(), viewM: nowD.getMonth(),
+  };
+  $('schedTitle').textContent = s.name + ' — schedule';
+  document.querySelector('#schedModal .cal__dow').innerHTML = DOW.map((d) => `<span>${d}</span>`).join('');
+  renderWeeklyOff();
+  renderCal();
+  clr($('schedStatus'));
+  $('schedModal').classList.add('open');
+}
+function closeSchedModal() { $('schedModal').classList.remove('open'); }
+
+function renderWeeklyOff() {
+  $('weeklyOff').innerHTML = DOW.map((d, i) => `<button type="button" class="wday${schedState.weeklyOff.has(i) ? ' on' : ''}" data-wd="${i}">${d}</button>`).join('');
+  $('weeklyOff').querySelectorAll('[data-wd]').forEach((b) => b.addEventListener('click', () => {
+    const wd = Number(b.dataset.wd);
+    if (schedState.weeklyOff.has(wd)) schedState.weeklyOff.delete(wd); else schedState.weeklyOff.add(wd);
+    renderWeeklyOff(); renderCal();
+  }));
+}
+
+function renderCal() {
+  const y = schedState.viewY, m = schedState.viewM;
+  $('calMonth').textContent = new Date(y, m, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const first = new Date(y, m, 1).getDay();
+  const days = new Date(y, m + 1, 0).getDate();
+  const todayIso = isoOf(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+  let cells = '';
+  for (let i = 0; i < first; i++) cells += '<div class="cal__cell cal__cell--pad"></div>';
+  for (let d = 1; d <= days; d++) {
+    const iso = isoOf(y, m, d);
+    const wd = new Date(y, m, d).getDay();
+    const past = iso < todayIso;
+    const st = effStatus(iso, wd);
+    const cls = 'cal__cell' + (st === 'off' ? ' cal__cell--off' : '') + (past ? ' cal__cell--past' : '');
+    cells += `<div class="${cls}"${past ? '' : ` data-day="${iso}" data-wd="${wd}"`}>${d}</div>`;
+  }
+  $('calGrid').innerHTML = cells;
+  $('calGrid').querySelectorAll('[data-day]').forEach((c) => c.addEventListener('click', () => toggleDay(c.dataset.day, Number(c.dataset.wd))));
+}
+
+function toggleDay(iso, wd) {
+  const before = effStatus(iso, wd);
+  schedState.datesOff.delete(iso);
+  schedState.datesOn.delete(iso);
+  const base = schedState.weeklyOff.has(wd) ? 'off' : 'available';
+  if (before === 'available') { if (base === 'available') schedState.datesOff.add(iso); }
+  else { if (base === 'off') schedState.datesOn.add(iso); }
+  renderCal();
+}
+
+$('calPrev').addEventListener('click', () => { if (--schedState.viewM < 0) { schedState.viewM = 11; schedState.viewY--; } renderCal(); });
+$('calNext').addEventListener('click', () => { if (++schedState.viewM > 11) { schedState.viewM = 0; schedState.viewY++; } renderCal(); });
+$('schedCancel').addEventListener('click', closeSchedModal);
+$('schedSave').addEventListener('click', async () => {
+  $('schedSave').disabled = true;
+  setStatus($('schedStatus'), '<span class="spin"></span>Saving…', 'info');
+  try {
+    await api('staffAvailability', {
+      id: schedState.id,
+      weeklyOff: Array.from(schedState.weeklyOff),
+      datesOff: Array.from(schedState.datesOff),
+      datesOn: Array.from(schedState.datesOn),
+    });
+    closeSchedModal();
+    loadStaff();
+  } catch (err) { setStatus($('schedStatus'), '❌ ' + err.message, 'err'); }
+  finally { $('schedSave').disabled = false; }
 });
 
 /* ================= SQUARE ================= */

@@ -106,6 +106,31 @@
     @keyframes sp { to { transform: rotate(360deg); } }
     .admin__foot { text-align: center; margin-top: 1.6rem; font-size: 0.85rem; }
     .admin__foot a { color: var(--pink); }
+
+    /* Staff list + schedule calendar */
+    .staff { border: 1px solid #f1dde7; border-radius: 16px; padding: 1rem 1.1rem; margin-bottom: 0.8rem; background: #fffdfe; display: flex; align-items: center; gap: 0.9rem; }
+    .staff__av { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, var(--pink), var(--pink-deep)); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 1.1rem; flex-shrink: 0; }
+    .staff__main { flex: 1; min-width: 0; }
+    .staff__name { font-family: var(--serif); font-weight: 600; font-size: 1.1rem; color: var(--ink); }
+    .staff__role { font-size: 0.82rem; color: var(--ink-soft); }
+    .staff__off { opacity: 0.55; }
+    .staff__actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+    .cal { margin-top: 0.6rem; }
+    .cal__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+    .cal__dow, .cal__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .cal__dow span { text-align: center; font-size: 0.7rem; color: var(--ink-soft); font-weight: 600; padding: 2px 0; }
+    .cal__cell { aspect-ratio: 1; border: 1.5px solid #efd7e3; border-radius: 10px; background: #eafaf0; color: #1c7a48; font-size: 0.82rem; font-weight: 600; cursor: pointer; display: grid; place-items: center; transition: transform .1s; }
+    .cal__cell:hover { transform: scale(1.06); }
+    .cal__cell--off { background: #fdecef; color: #b3243b; text-decoration: line-through; }
+    .cal__cell--pad { border: none; background: transparent; cursor: default; }
+    .cal__cell--past { opacity: 0.4; cursor: default; }
+    .cal__legend { margin-top: 0.6rem; font-size: 0.78rem; color: var(--ink-soft); display: flex; align-items: center; gap: 0.4rem; }
+    .cal__key { display: inline-block; width: 14px; height: 14px; border-radius: 4px; }
+    .cal__key--on { background: #eafaf0; border: 1.5px solid #b6e6c8; }
+    .cal__key--off { background: #fdecef; border: 1.5px solid #f2c4cd; margin-left: 0.6rem; }
+    .wday { border: 1.5px solid rgba(226,124,163,0.4); background: #fff; color: var(--pink-deep); border-radius: 8px; padding: 0.3rem 0.5rem; font-size: 0.74rem; font-weight: 600; cursor: pointer; }
+    .wday.on { background: #fdecef; color: #b3243b; border-color: #f0bcc6; }
     @media (max-width: 520px) { .row2 { grid-template-columns: 1fr; } .dogrow { grid-template-columns: 1fr 1fr; } }
   </style>
 </head>
@@ -150,6 +175,7 @@
         <button class="tab active" data-tab="gallery">📷 Gallery</button>
         <button class="tab" data-tab="customers">🐾 Customers</button>
         <button class="tab" data-tab="messages">💬 Messages</button>
+        <button class="tab" data-tab="staff">👥 Staff</button>
         <button class="tab" data-tab="settings">⚙️ Settings</button>
         <button class="tab" data-tab="square">📅 Square</button>
       </div>
@@ -220,6 +246,18 @@
             <button class="mini" id="reloadHistory">↻ Refresh</button>
           </div>
           <div id="historyList"><p class="muted">Loading…</p></div>
+        </div>
+      </section>
+
+      <!-- STAFF & SCHEDULES -->
+      <section data-panel="staff" class="hidden">
+        <div class="card">
+          <div class="inline" style="justify-content:space-between;align-items:center;margin-bottom:.4rem">
+            <h3 style="font-family:var(--serif);margin:0">Stylists &amp; schedules 👥</h3>
+            <button class="btn btn--primary" id="staffAddBtn">＋ Add stylist</button>
+          </div>
+          <p class="muted" style="margin-bottom:1rem">Up to 10 stylists. Tap <strong>Schedule</strong> to mark the days each one is available or off.</p>
+          <div id="staffList"><p class="muted">Loading…</p></div>
         </div>
       </section>
 
@@ -339,6 +377,71 @@
       </div>
       <button class="mini" id="closeMsg" type="button">Close</button>
       <div class="status" id="msgStatus"></div>
+    </div>
+  </div>
+
+  <!-- Stylist editor modal -->
+  <div class="modal" id="staffModal">
+    <div class="modal__box">
+      <h3 id="staffModalTitle">New stylist</h3>
+      <input type="hidden" id="sfId" />
+      <div class="field"><label>Name</label><input type="text" id="sfName" placeholder="Stylist name" /></div>
+      <div class="row2">
+        <div class="field"><label>Role / title</label><input type="text" id="sfRole" placeholder="Groomer & Stylist" /></div>
+        <div class="field"><label>Phone</label><input type="tel" id="sfPhone" placeholder="304-555-1234" /></div>
+      </div>
+      <div class="field"><label>Services / tags</label><input type="text" id="sfTags" placeholder="Grooms · Baths · De-Shed" /></div>
+      <label class="toggle"><input type="checkbox" id="sfActive" checked /> Active (shown on the website)</label>
+
+      <div class="field" style="margin-top:1rem">
+        <label>Square team member ID <span class="muted">(optional — for later slot booking)</span></label>
+        <input type="text" id="sfSquareId" placeholder="Leave blank for now" />
+      </div>
+
+      <div style="border:1px dashed #efd7e3;border-radius:12px;padding:.9rem;margin:.6rem 0;background:#fffafc">
+        <label style="display:block;font-weight:600;color:var(--ink-soft);font-size:.82rem;margin-bottom:.4rem">Per-stylist texting <span class="soon">Not active yet</span></label>
+        <p class="muted" style="margin:0 0 .6rem">Scaffolded for later — set this stylist's own outbound number. Texts still route through the salon until it's turned on.</p>
+        <div class="row2">
+          <div class="field" style="margin:0"><label>Their SMS number</label><input type="tel" id="sfSmsFrom" placeholder="+1304…" disabled /></div>
+          <label class="toggle" style="margin-top:1.7rem"><input type="checkbox" id="sfSmsEnabled" disabled /> Enable (later)</label>
+        </div>
+      </div>
+
+      <div class="inline" style="justify-content:space-between;margin-top:1rem">
+        <button class="mini mini--danger" id="staffDelete" type="button">Delete</button>
+        <div class="inline">
+          <button class="mini" id="staffCancel" type="button">Cancel</button>
+          <button class="btn btn--primary" id="staffSave" type="button" style="padding:.6rem 1.3rem;font-size:.84rem">Save</button>
+        </div>
+      </div>
+      <div class="status" id="staffModalStatus"></div>
+    </div>
+  </div>
+
+  <!-- Schedule modal -->
+  <div class="modal" id="schedModal">
+    <div class="modal__box">
+      <h3 id="schedTitle">Schedule</h3>
+      <p class="muted" style="margin-top:-.5rem">Tap a day to switch it between <strong>available</strong> and <strong>off</strong>.</p>
+      <div class="field">
+        <label>Normally off on</label>
+        <div class="inline" id="weeklyOff" style="gap:.3rem"></div>
+      </div>
+      <div class="cal">
+        <div class="cal__head">
+          <button class="mini" id="calPrev" type="button">‹</button>
+          <strong id="calMonth"></strong>
+          <button class="mini" id="calNext" type="button">›</button>
+        </div>
+        <div class="cal__dow"></div>
+        <div class="cal__grid" id="calGrid"></div>
+        <div class="cal__legend"><span class="cal__key cal__key--on"></span> Available <span class="cal__key cal__key--off"></span> Off</div>
+      </div>
+      <div class="inline" style="justify-content:flex-end;margin-top:1rem">
+        <button class="mini" id="schedCancel" type="button">Cancel</button>
+        <button class="btn btn--primary" id="schedSave" type="button" style="padding:.6rem 1.3rem;font-size:.84rem">Save schedule</button>
+      </div>
+      <div class="status" id="schedStatus"></div>
     </div>
   </div>
 

@@ -183,7 +183,40 @@ const db = admin.firestore();
 const CUSTOMERS = "pp_customers";
 const SETTINGS = "pp_settings";
 const MESSAGES = "pp_messages";
+const STAFF = "pp_staff";
 const now = () => admin.firestore.FieldValue.serverTimestamp();
+
+// Default roster seeded on first staffList when pp_staff is empty.
+const DEFAULT_STAFF = [
+  { name: "Britni", role: "Owner & Groomer", tags: "Grooms · Baths · De-Shed", phone: "+13049212748", order: 0 },
+  { name: "Jenefer", role: "Groomer & Stylist", tags: "Grooms · Baths · De-Shed", phone: "+13048094041", order: 1 },
+  { name: "Hannah", role: "Bath & Spa Specialist", tags: "Baths · Nails · De-Shed Treatments", phone: "+13048001778", order: 2 },
+];
+const MAX_STAFF = 10;
+
+function staffOut(doc) {
+  const d = doc.data() || {};
+  return {
+    id: doc.id,
+    name: d.name || "",
+    role: d.role || "",
+    tags: d.tags || "",
+    phone: d.phone || "",
+    active: d.active !== false,
+    order: typeof d.order === "number" ? d.order : 99,
+    // Square linkage (used later when slot-booking is layered on).
+    squareTeamMemberId: d.squareTeamMemberId || "",
+    // Per-stylist SMS scaffold — NOT wired to sending yet (dormant).
+    sms: {
+      enabled: !!(d.sms && d.sms.enabled),
+      from: (d.sms && d.sms.from) || "",
+    },
+    // Availability: recurring weekly days off + specific date overrides.
+    weeklyOff: Array.isArray(d.weeklyOff) ? d.weeklyOff : [],
+    datesOff: Array.isArray(d.datesOff) ? d.datesOff : [],
+    datesOn: Array.isArray(d.datesOn) ? d.datesOn : [],
+  };
+}
 
 // Non-secret Square config lives in Firestore (pp_settings/square); the token
 // is the only secret. Assembles the cfg object square.js helpers expect.
@@ -472,6 +505,84 @@ exports.pinkPoodleApi = onRequest(
           await setAdminPassphrase(np);
           notifyPassphraseChanged("changed from the Salon Console").catch((e) => console.error("notify failed", e && e.message));
           return res.json({ ok: true });
+        }
+
+        /* ---------------- Staff & schedules ---------------- */
+        case "staffList": {
+          let snap = await db.collection(STAFF).get();
+          if (snap.empty) {
+            // First run — seed the known roster so nothing starts blank.
+            const batch = db.batch();
+            for (const s of DEFAULT_STAFF) {
+              const ref = db.collection(STAFF).doc();
+              batch.set(ref, {
+                name: s.name, role: s.role, tags: s.tags, phone: s.phone, order: s.order,
+                active: true, squareTeamMemberId: "",
+                sms: { enabled: false, from: "" },
+                weeklyOff: [], datesOff: [], datesOn: [],
+                createdAt: now(), updatedAt: now(),
+              });
+            }
+            await batch.commit();
+            snap = await db.collection(STAFF).get();
+          }
+          const staff = snap.docs.map(staffOut).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+          return res.json({ ok: true, staff });
+        }
+
+        case "staffSave": {
+          const s = body.staff || {};
+          const clean = {
+            name: (s.name || "").slice(0, 60),
+            role: (s.role || "").slice(0, 80),
+            tags: (s.tags || "").slice(0, 120),
+            phone: (s.phone || "").replace(/[^\d+]/g, "").slice(0, 20),
+            active: s.active !== false,
+            order: typeof s.order === "number" ? s.order : 99,
+            squareTeamMemberId: (s.squareTeamMemberId || "").slice(0, 60),
+            // Scaffold only — a per-stylist "from" number for future Twilio use.
+            sms: {
+              enabled: !!(s.sms && s.sms.enabled),
+              from: (s.sms && s.sms.from ? String(s.sms.from) : "").replace(/[^\d+]/g, "").slice(0, 20),
+            },
+            updatedAt: now(),
+          };
+          if (!clean.name) return res.status(400).json({ error: "A stylist needs a name." });
+          let id = s.id;
+          if (id) {
+            await db.collection(STAFF).doc(id).set(clean, { merge: true });
+          } else {
+            const count = (await db.collection(STAFF).count().get()).data().count;
+            if (count >= MAX_STAFF) return res.status(400).json({ error: `You can have up to ${MAX_STAFF} stylists.` });
+            clean.weeklyOff = []; clean.datesOff = []; clean.datesOn = [];
+            clean.createdAt = now();
+            const ref = await db.collection(STAFF).add(clean);
+            id = ref.id;
+          }
+          const saved = await db.collection(STAFF).doc(id).get();
+          return res.json({ ok: true, staff: staffOut(saved) });
+        }
+
+        case "staffDelete": {
+          if (!body.id) return res.status(400).json({ error: "Missing id." });
+          await db.collection(STAFF).doc(body.id).delete();
+          return res.json({ ok: true });
+        }
+
+        case "staffAvailability": {
+          if (!body.id) return res.status(400).json({ error: "Missing id." });
+          const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+          const cleanDates = (a) => (Array.isArray(a) ? a : []).filter((d) => dateRe.test(d)).slice(0, 366);
+          const weeklyOff = (Array.isArray(body.weeklyOff) ? body.weeklyOff : [])
+            .map((n) => Number(n)).filter((n) => n >= 0 && n <= 6);
+          await db.collection(STAFF).doc(body.id).set({
+            weeklyOff: Array.from(new Set(weeklyOff)),
+            datesOff: cleanDates(body.datesOff),
+            datesOn: cleanDates(body.datesOn),
+            updatedAt: now(),
+          }, { merge: true });
+          const saved = await db.collection(STAFF).doc(body.id).get();
+          return res.json({ ok: true, staff: staffOut(saved) });
         }
 
         /* ---------------- Square Appointments ---------------- */
