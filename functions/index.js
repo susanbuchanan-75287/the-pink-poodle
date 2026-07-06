@@ -1582,6 +1582,7 @@ const SPA_CLIENTS = "pp_spa_clients";
 const SPA_WAITLIST = "pp_spa_waitlist";
 const SPA_INVENTORY = "pp_spa_inventory";
 const SPA_GEOCACHE = "pp_spa_geocache";
+const SPA_PLATFORM_LEADS = "pp_platform_leads";
 const SPA_PIN_DEFAULT = "0221";
 const SPA_STEPS = ["Requested", "Checked in", "Bathing", "Grooming", "Finishing", "Ready for pickup", "Picked up"];
 const DEFAULT_FEES = [
@@ -2262,7 +2263,7 @@ exports.pinkPoodleSpa = onRequest(
     const b = req.body || {};
     const action = b.action;
     const ip = clientIp(req);
-    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode", "spaConfirmByCode", "spaRescheduleByCode", "spaWaitlistJoin", "spaVaxUpload"];
+    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode", "spaConfirmByCode", "spaRescheduleByCode", "spaWaitlistJoin", "spaVaxUpload", "spaPlatformLead"];
     let actor = null;
 
     try {
@@ -2279,6 +2280,45 @@ exports.pinkPoodleSpa = onRequest(
         /* ---------------- public / customer ---------------- */
         case "spaMenu":
           return res.json({ ok: true, fees: await loadFees() });
+
+        case "spaPlatformLead": {
+          // Public lead capture for the groomer website setup wizard (Model B:
+          // $399 setup + $29/mo hosting). The platform never touches groomer
+          // money, so this only records interest — no payment is processed here.
+          const ok = await checkRateLimit("spalead", ip, { max: 6, windowMs: 60 * 60 * 1000 });
+          if (!ok) return res.status(429).json({ error: "Too many requests. Please email groomerbrit@yahoo.com." });
+          if (b.company) return res.json({ ok: true }); // honeypot
+          const contact = b.contact || {};
+          const email = String(contact.email || "").trim().slice(0, 120);
+          const name = String(contact.name || "").trim().slice(0, 80);
+          const phone = String(contact.phone || "").trim().slice(0, 40);
+          const domain = String(contact.domain || "").trim().slice(0, 120);
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({ error: "Please provide a valid email." });
+          }
+          const plan = String(b.plan || "").slice(0, 60);
+          let config = {};
+          try {
+            if (b.config && typeof b.config === "object") {
+              const raw = JSON.stringify(b.config);
+              if (raw.length > 20000) return res.status(400).json({ error: "Config too large." });
+              config = JSON.parse(raw);
+            }
+          } catch (_e) {
+            config = {};
+          }
+          const rec = {
+            contact: { name, email, phone, domain },
+            plan,
+            config,
+            status: "new",
+            ip,
+            createdAt: now(),
+          };
+          const ref = await db.collection(SPA_PLATFORM_LEADS).add(rec);
+          return res.json({ ok: true, id: ref.id });
+        }
+
 
         case "spaLogin":
           // Confirms the PIN and returns who it belongs to + their role, so the

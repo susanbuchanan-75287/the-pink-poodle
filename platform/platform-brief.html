@@ -52,6 +52,13 @@
     <strong>TL;DR.</strong> The <em>website</em> half of this product is easy and cheap — we built a working generator that spins up a themed 4-page site from a JSON file (see the <code>platform/</code> folder and the <a href="site-generator/sites/happy-tails/index.html">Happy Tails demo</a>). The <em>hard, expensive, risky</em> half is everything behind it: subscription billing, a tenant-isolated backend, SMS at scale, per-state money/tax law, and support. At $40/mo the margin is real but thin once texting and support are honest. <strong>Recommendation: launch a small, deliberately-scoped pilot (5–10 local groomers), price at $49–$59/mo, and treat payments/SMS as the gating risks — not the website.</strong>
   </div>
 
+  <div class="card" style="border-left:4px solid #d6337f">
+    <strong>Update — self-service wizard shipped + monetization decided (Model B).</strong>
+    We built <code>platform/wizard/index.html</code>: a single-file browser wizard where a groomer fills in a form and gets a <strong>live preview</strong> (Home/Services/About/Book, desktop &amp; phone) rendered by the same <code>site-generator/templates.js</code> engine the CLI uses — so preview output is <strong>byte-identical</strong> to what publishes (verified via SHA-256). They can download a ZIP, download a reusable JSON config, or Publish (a lead capture).
+    <br><br>
+    <strong>Chosen model: Model B — $399 one-time setup + $29/mo hosting</strong>, with The Pink Poodle free as the flagship reference. The decisive design choice: the <strong>platform never touches groomer money</strong>. Each groomer keeps their own Square/Stripe/SMS and takes client payments directly, so we take <em>no</em> per-transaction cut. That deliberately keeps us out of <strong>money-transmitter licensing</strong> and <strong>ASC 606</strong> revenue-recognition complexity — we sell setup + hosting, not payment processing. Wizard "Publish" writes to the <code>pp_platform_leads</code> Firestore collection (rate-limited, honeypot-guarded, email-validated) for manual, human-in-the-loop follow-up.
+  </div>
+
   <h2>1. What the customer actually gets for $40</h2>
   <p>The pitch: a groomer signs up, and within minutes has a polished website + online booking, without touching code. Concretely, a tenant bundle would include:</p>
   <div class="grid">

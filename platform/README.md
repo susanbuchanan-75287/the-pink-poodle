@@ -39,12 +39,48 @@ Output lands in `site-generator/sites/<slug>/`. Open `index.html` to preview.
 that demonstrates the product with a completely different brand from the Pink
 Poodle.
 
+### `wizard/index.html` — self-service setup wizard
+A single-file, zero-dependency browser wizard that lets a groomer build their
+own 4-page site with a **live preview** — no CLI, no Node. It loads the same
+`site-generator/templates.js` engine the CLI uses, so **what you preview is
+byte-for-byte what gets published**.
+
+Open `wizard/index.html` in any browser. Left column: a form (plan, shop info,
+brand colors, services + prices, reviews, booking endpoint). Right column: a
+sticky live preview (Home / Services / About / Book tabs, desktop/phone toggle)
+plus three actions:
+
+- **Publish** — POSTs the config as a `spaPlatformLead` to the Pink Poodle
+  backend (lead capture only; see below). On any failure it downloads the
+  request JSON and shows a text/email fallback so the groomer is never stuck.
+- **Download ZIP** — builds `<slug>-website.zip` (all 5 files) client-side with
+  a tiny store-mode ZIP writer — the groomer can host it anywhere.
+- **Download JSON** — exports `<slug>.json`, a valid `tenants/*.json` config
+  that `generate.js` can rebuild from.
+
+### Monetization — Model B ($399 setup + $29/mo)
+The chosen model: **$399 one-time setup + $29/mo hosting**, with The Pink Poodle
+itself free (flagship reference). Critically, **the platform never touches
+groomer money** — each groomer keeps their own Square/Stripe/SMS and takes
+payments directly. There is no per-transaction cut, which is what keeps us out
+of money-transmitter licensing and ASC 606 revenue-recognition complexity. The
+groomer owns their domain, repo, and payment processor; we sell setup + hosting.
+
+The `spaPlatformLead` backend action records wizard "Publish" submissions into
+the Firestore `pp_platform_leads` collection (rate-limited, honeypot-guarded,
+email-validated). It stores interest only — **no payment is processed** — so
+Susan can follow up manually and keep onboarding a human-in-the-loop step.
+
+
 ## What this MVP is NOT (yet)
 
 This proves the **site-generation** half of the product. The board brief covers
 the rest of what a real launch needs — and none of it is built here:
 
-- Tenant **signup + Stripe subscription billing** ($40/mo).
+- Tenant **signup** is lead-capture only (wizard → `pp_platform_leads`);
+  billing for the **$399 setup + $29/mo** (Model B) is handled manually /
+  out-of-band for now — the platform intentionally never processes groomer
+  customer payments.
 - A shared, **tenant-scoped backend** (bookings, inventory, etc. keyed by
   `tenantId`) with hard data isolation between salons.
 - Automated **provisioning** (create tenant → generate site → deploy → attach
