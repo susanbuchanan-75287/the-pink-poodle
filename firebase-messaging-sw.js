@@ -20,16 +20,16 @@ messaging.onBackgroundMessage(function (payload) {
   const n = (payload && payload.notification) || {};
   self.registration.showNotification(n.title || 'The Pink Poodle 🐩', {
     body: n.body || 'We have news from the salon!',
-    icon: 'https://pinkpoodle.dog/assets/paris.jpg',
-    badge: 'https://pinkpoodle.dog/assets/paris.jpg',
+    icon: 'https://thepinkpoodle.dog/assets/paris.jpg',
+    badge: 'https://thepinkpoodle.dog/assets/paris.jpg',
     tag: 'pp-promo',
-    data: { url: 'https://pinkpoodle.dog/' }
+    data: { url: 'https://thepinkpoodle.dog/' }
   });
 });
 
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || 'https://pinkpoodle.dog/';
+  const url = (event.notification.data && event.notification.data.url) || 'https://thepinkpoodle.dog/';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
       for (const c of list) { if (c.url === url && 'focus' in c) return c.focus(); }

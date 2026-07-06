@@ -2,19 +2,19 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
-    <loc>https://pinkpoodle.dog/</loc>
+    <loc>https://thepinkpoodle.dog/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <image:image>
-      <image:loc>https://pinkpoodle.dog/assets/britni.jpg</image:loc>
+      <image:loc>https://thepinkpoodle.dog/assets/britni.jpg</image:loc>
       <image:title>Britni, dog groomer at The Pink Poodle in Princeton, WV</image:title>
     </image:image>
     <image:image>
-      <image:loc>https://pinkpoodle.dog/assets/groom-strawberry.jpg</image:loc>
+      <image:loc>https://thepinkpoodle.dog/assets/groom-strawberry.jpg</image:loc>
       <image:title>Freshly groomed dog at The Pink Poodle salon</image:title>
     </image:image>
     <image:image>
-      <image:loc>https://pinkpoodle.dog/assets/paris.jpg</image:loc>
+      <image:loc>https://thepinkpoodle.dog/assets/paris.jpg</image:loc>
       <image:title>Paris the toy poodle, The Pink Poodle mascot</image:title>
     </image:image>
   </url>

@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://pinkpoodle.dog/sitemap.xml
+Sitemap: https://thepinkpoodle.dog/sitemap.xml

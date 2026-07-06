@@ -2,7 +2,7 @@
 
 Marketing website for **The Pink Poodle** — a locally owned luxury pet salon in Princeton, West Virginia, owned and operated by Britni.
 
-**Live site:** https://pinkpoodle.dog
+**Live site:** https://thepinkpoodle.dog (canonical; `pinkpoodle.dog` 301-redirects here)
 
 ## About
 Static, single-page site (no build step). Just HTML, CSS, and vanilla JS — fast, secure, and free to host on GitHub Pages.
@@ -14,7 +14,7 @@ Static, single-page site (no build step). Just HTML, CSS, and vanilla JS — fas
 | `script.js` | Nav, gallery lightbox, scroll reveals, SMS booking composer |
 | `firebase-messaging-sw.js` | Root service worker: web-push (FCM) **and** spa-app offline cache |
 | `assets/` | Photos of Britni, Paris, and freshly-groomed pups |
-| `CNAME` | Custom domain for GitHub Pages (`pinkpoodle.dog`) |
+| `CNAME` | Custom domain for GitHub Pages (`thepinkpoodle.dog`) |
 
 ## Booking → text notification
 When a visitor fills out the booking form and taps **Request My Appointment**, the form POSTs to the `pinkPoodleBook` Firebase Function, which:
@@ -45,7 +45,7 @@ The booking form keeps its friendly "request a time" flow, but every request can
 Config lives in Firestore (`pp_settings/square`); only the token is a secret. Implementation is `functions/square.js` (raw Square REST v2 — no SDK dependency, keeping the 0-vuln posture). Admin actions: `squareStatus`, `squareConnect`, `squareSaveConfig`, `squareBookings`, `squareSyncCustomer`, `squareCreateBooking`.
 
 ## Spa App 🛁 (spa.html) — installable PWA, **live backend**
-A web app for pet owners **and** the front desk, at `https://pinkpoodle.dog/spa.html` (also linked in the site nav as "🛁 Spa App"). It's installable to a phone home screen (Web App Manifest + service worker) and is **fully wired to a live backend** — the `pinkPoodleSpa` Cloud Function (`https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodleSpa`), with all data in **Firestore**. **Nothing is stored in the browser** — no `localStorage`, no `sessionStorage`, no cookies. Bookings sync across every device (phone, kiosk, back office) in real time, and a new booking still offers a real **SMS deep-link** so the request also lands on Britni's phone.
+A web app for pet owners **and** the front desk, at `https://thepinkpoodle.dog/spa.html` (also linked in the site nav as "🛁 Spa App"). It's installable to a phone home screen (Web App Manifest + service worker) and is **fully wired to a live backend** — the `pinkPoodleSpa` Cloud Function (`https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodleSpa`), with all data in **Firestore**. **Nothing is stored in the browser** — no `localStorage`, no `sessionStorage`, no cookies. Bookings sync across every device (phone, kiosk, back office) in real time, and a new booking still offers a real **SMS deep-link** so the request also lands on Britni's phone.
 
 **Customer side:**
 - **Booking** — describe the pup inline (name, breed, size, notes), pick services + optional add-ons + preferred stylist (Britni / Jenefer / Hannah / no preference) + date & time; a live estimate updates as you go (with a size surcharge on grooming services).
@@ -69,7 +69,7 @@ A web app for pet owners **and** the front desk, at `https://pinkpoodle.dog/spa.
 ## Retention & operations level-up 🚀 (Bundle B)
 Benchmarked against the top US grooming platforms (MoeGo, Gingr, Pawfinity, Groomer.io, DaySmart), the spa app now matches or beats the paid tools on the retention/automation layer — all built into the existing `pinkPoodleSpa` function, no new SaaS subscription. Everything is fully implemented and live:
 
-- **Automated appointment reminders + client confirm** — a scheduled function `pinkPoodleSpaCron` (hourly, `America/New_York`) texts/emails each client the day before their appointment (once, between 9–11am ET) with a one-tap confirm link `https://pinkpoodle.dog/spa.html?confirm=REF`. The spa app handles the `?confirm=` deep-link, calls `spaConfirmByCode`, and shows the live status. Staff also see confirmed/unconfirmed badges and can confirm manually.
+- **Automated appointment reminders + client confirm** — a scheduled function `pinkPoodleSpaCron` (hourly, `America/New_York`) texts/emails each client the day before their appointment (once, between 9–11am ET) with a one-tap confirm link `https://thepinkpoodle.dog/spa.html?confirm=REF`. The spa app handles the `?confirm=` deep-link, calls `spaConfirmByCode`, and shows the live status. Staff also see confirmed/unconfirmed badges and can confirm manually.
 - **Recurring / standing appointments** — **🔁 Rebook** clones a finished visit N weeks out (2–12) and records the cadence on the client (`rebookEveryWeeks`) so it's suggested next time.
 - **Before/after photo history** — a private per-pet gallery. Photos live in a **public-access-prevented** Cloud Storage bucket (`pp-pets-binditails-da2de`) and are **served only through the function as base64 behind the PIN** (`spaPhoto`) — never a public URL. Upload validates JPEG/PNG/WebP ≤5 MB; newest photos sort first; delete is manager+. Metadata in `pp_spa_photos`.
 - **Groom cut sheet** — structured clipper/style settings saved on each pet (`groom{style,body,legs,face,ears,tail,feet,finish,notes}`) so any stylist can reproduce the owner's preferred look.
@@ -82,7 +82,7 @@ Benchmarked against the top US grooming platforms (MoeGo, Gingr, Pawfinity, Groo
 ## Photo upload portal 🖼️
 Britni can add photos to the website gallery herself — no code, no commits.
 
-- **Portal:** `admin.html` (link: `https://pinkpoodle.dog/admin.html`) — not indexed by search engines. This is now the full **Salon Console** (see below).
+- **Portal:** `admin.html` (link: `https://thepinkpoodle.dog/admin.html`) — not indexed by search engines. This is now the full **Salon Console** (see below).
 - **How it works:** she enters the admin passphrase, picks a photo, adds the dog's name/breed, and taps **Upload**. A Firebase Function commits the image into `assets/gallery/` and prepends it to `gallery.json`; GitHub Pages rebuilds and the photo appears on the site in about a minute. The gallery on `index.html` renders dynamically from `gallery.json`.
 - **Backend:** Firebase Functions `pinkPoodleUpload` (legacy), `pinkPoodleApi` (console), and `pinkPoodleBook` (public booking) — project `binditails-da2de`, codebase `pinkpoodle`, region `us-central1`. Source in `functions/index.js`.
 - **Secrets (Firebase Secret Manager):** `GH_TOKEN` (repo commit), `PP_ADMIN_KEY` (portal passphrase), `PP_FB_PAGE_ID` + `PP_FB_PAGE_TOKEN` (Facebook — placeholder `unset` until enabled), and the shared `SENDGRID_API_KEY` / `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` transport used by `pinkPoodleBook` **and** the `smsBlast` promo texts.
@@ -122,7 +122,7 @@ The passphrase is now stored as a salted **scrypt hash** in Firestore (`pp_confi
 - **Credential copies to Susan** — whenever the passphrase changes or a PIN/passphrase is reset, a **plaintext copy** of the new credential is emailed **only** to the backup admin `susanbuchanan@yahoo.com` (hardcoded recipient, HTML-escaped, no request-controlled address). Each emailed value is **prefixed with a `Rex-Loves-Susan-` canary** and the email tells Susan to strip that prefix before use — so a credential copied verbatim out of a compromised inbox **fails to log in**, and the decoy prefix is a tripwire. ⚠️ *Security tradeoff (requested):* the real credential still lands in one inbox in plaintext — rotate it immediately if that mailbox is ever compromised.
 
 ### Web push (public site) 🔔
-The public site has a **Get salon alerts** button (Visit section) that subscribes the visitor to FCM web push and flips to **Turn off alerts** so they can opt out anytime (`pinkPoodlePush` `subscribe`/`unsubscribe`; tokens in `pp_push_subs`, keyed by SHA-256 so subscribers can't be enumerated). The browser permission prompt is the real opt-in; copy is explicit that it's only openings & specials. Broadcasts go out from the console's **web push** blast (`pushBlast`), which prunes only genuinely dead tokens (`registration-token-not-registered` / `invalid-registration-token`). Requires the `binditails-da2de` Browser API key to allow `pinkpoodle.dog` HTTP referrers + `firebaseinstallations`/`fcmregistrations` targets.
+The public site has a **Get salon alerts** button (Visit section) that subscribes the visitor to FCM web push and flips to **Turn off alerts** so they can opt out anytime (`pinkPoodlePush` `subscribe`/`unsubscribe`; tokens in `pp_push_subs`, keyed by SHA-256 so subscribers can't be enumerated). The browser permission prompt is the real opt-in; copy is explicit that it's only openings & specials. Broadcasts go out from the console's **web push** blast (`pushBlast`), which prunes only genuinely dead tokens (`registration-token-not-registered` / `invalid-registration-token`). Requires the `binditails-da2de` Browser API key to allow `thepinkpoodle.dog` (and `pinkpoodle.dog`) HTTP referrers + `firebaseinstallations`/`fcmregistrations` targets.
 
 ### Security note
 The fire test used the CLI's GitHub OAuth token for `GH_TOKEN`. For production, replace it with a **fine-grained PAT** scoped to only this repo's *Contents: read & write*, then re-set `GH_TOKEN` and redeploy.
@@ -150,17 +150,17 @@ The site is optimized for local search ("dog grooming Princeton WV" and similar)
 - `sitemap.xml` (with image sitemap) and `robots.txt`
 - Semantic headings, descriptive `alt` text, and explicit image `width`/`height` for Core Web Vitals
 
-After the domain is live, submit `https://pinkpoodle.dog/sitemap.xml` in [Google Search Console](https://search.google.com/search-console) and create/claim the [Google Business Profile](https://business.google.com) for the strongest local ranking.
+After the domain is live, submit `https://thepinkpoodle.dog/sitemap.xml` in [Google Search Console](https://search.google.com/search-console) and create/claim the [Google Business Profile](https://business.google.com) for the strongest local ranking.
 
 ## Hosting (GitHub Pages)
 1. Repo: `susanbuchanan-75287/the-pink-poodle`
 2. Settings → Pages → Source: **Deploy from a branch** → `main` / root
-3. Custom domain: `pinkpoodle.dog` (set via the `CNAME` file)
+3. Custom domain: `thepinkpoodle.dog` (set via the `CNAME` file)
 
 ### DNS
-Point the domain's DNS at GitHub Pages:
+`thepinkpoodle.dog` is the **canonical/primary** domain (served by GitHub Pages); `pinkpoodle.dog` **redirects** to it. GitHub Pages serves only the one domain named in the `CNAME` file and automatically issues a **301 redirect** to it from any other domain whose DNS also points at the Pages site — so keeping `pinkpoodle.dog` pointed at Pages gives a free HTTPS redirect to `thepinkpoodle.dog`, no registrar forwarding needed.
 
-**Apex `pinkpoodle.dog`** — four A records:
+**Primary `thepinkpoodle.dog`** (apex) — four A records, and remove any old "forward/redirect to pinkpoodle.dog" at the registrar:
 ```
 185.199.108.153
 185.199.109.153
@@ -169,9 +169,11 @@ Point the domain's DNS at GitHub Pages:
 ```
 (and optionally AAAA records for IPv6.)
 
-**`www.pinkpoodle.dog`** — CNAME → `susanbuchanan-75287.github.io`
+**`www.thepinkpoodle.dog`** — CNAME → `susanbuchanan-75287.github.io`
 
-**Second domain `thepinkpoodle.dog`** — set up a forward/redirect at your registrar to `https://pinkpoodle.dog` (most registrars offer free domain forwarding).
+**Redirecting domain `pinkpoodle.dog`** — leave its apex A records pointing at the four GitHub Pages IPs above (and `www.pinkpoodle.dog` CNAME → `susanbuchanan-75287.github.io`). Once `CNAME` = `thepinkpoodle.dog`, GitHub Pages 301-redirects all `pinkpoodle.dog` traffic to `thepinkpoodle.dog` over HTTPS.
+
+> **⚠️ Order of operations:** point `thepinkpoodle.dog`'s DNS at Pages (and remove its old forward) **before** changing the `CNAME` file to `thepinkpoodle.dog`. Flipping `CNAME` first, while `thepinkpoodle.dog` still forwards to `pinkpoodle.dog`, creates an infinite redirect loop.
 
 ## Updating content
 - **Text/services/reviews:** edit `index.html`

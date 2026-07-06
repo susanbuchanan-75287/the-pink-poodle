@@ -24,7 +24,7 @@ than opening a public issue. We'll respond as quickly as we can.
 - **Input validation:** every field is length-capped and the email format is
   checked before anything is sent or stored.
 - **CORS lockdown:** functions only accept browser requests from
-  `*.pinkpoodle.dog` (and localhost for testing).
+  `*.thepinkpoodle.dog` / `*.pinkpoodle.dog` (and localhost for testing).
 - **Admin passphrase:** the Salon Console requires a passphrase, stored as a
   salted **scrypt hash** in Firestore and compared in **constant time** (no
   timing leak, never stored in plaintext). Wrong guesses are throttled — 8

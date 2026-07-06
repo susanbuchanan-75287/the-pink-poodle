@@ -61,7 +61,7 @@ function gh(path, token, opts = {}) {
 exports.pinkPoodleUpload = onRequest(
   {
     secrets: [GH_TOKEN, PP_ADMIN_KEY, PP_FB_PAGE_ID, PP_FB_PAGE_TOKEN],
-    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*(pinkpoodle|thepinkpoodle)\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "512MiB",
     timeoutSeconds: 120,
     region: "us-central1",
@@ -325,7 +325,7 @@ function customerOut(doc) {
 exports.pinkPoodleApi = onRequest(
   {
     secrets: [GH_TOKEN, PP_ADMIN_KEY, PP_FB_PAGE_ID, PP_FB_PAGE_TOKEN, SENDGRID_API_KEY, SQUARE_ACCESS_TOKEN, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER],
-    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*(pinkpoodle|thepinkpoodle)\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "512MiB",
     timeoutSeconds: 120,
     region: "us-central1",
@@ -552,8 +552,8 @@ exports.pinkPoodleApi = onRequest(
                 token: tok,
                 notification: { title, body: text },
                 webpush: {
-                  fcmOptions: { link: "https://pinkpoodle.dog/" },
-                  notification: { icon: "https://pinkpoodle.dog/assets/paris.jpg", tag: "pp-promo" },
+                  fcmOptions: { link: "https://thepinkpoodle.dog/" },
+                  notification: { icon: "https://thepinkpoodle.dog/assets/paris.jpg", tag: "pp-promo" },
                 },
               });
               sent++;
@@ -1015,12 +1015,12 @@ async function notifyPassphraseChanged(how) {
     subject: "🔐 Pink Poodle admin passphrase was changed",
     text:
       `The Pink Poodle Salon Console passphrase was ${how} on ${when} (ET).\n\n` +
-      `If this wasn't you, request a fresh reset at https://pinkpoodle.dog/admin.html and contact Susan.`,
+      `If this wasn't you, request a fresh reset at https://thepinkpoodle.dog/admin.html and contact Susan.`,
     html:
       `<div style="font-family:Arial,sans-serif;max-width:520px;color:#2c1c26">` +
       `<h2 style="color:#b83372">🔐 Admin passphrase changed</h2>` +
       `<p>The Pink Poodle Salon Console passphrase was <strong>${esc(how)}</strong> on <strong>${esc(when)} ET</strong>.</p>` +
-      `<p style="color:#6a5560;font-size:13px">If this wasn't you, go to <a href="https://pinkpoodle.dog/admin.html">the console</a>, request a reset, and contact Susan.</p></div>`,
+      `<p style="color:#6a5560;font-size:13px">If this wasn't you, go to <a href="https://thepinkpoodle.dog/admin.html">the console</a>, request a reset, and contact Susan.</p></div>`,
   });
 }
 
@@ -1050,7 +1050,7 @@ async function emailCredentialCopy({ passphrase, pin, how }) {
       `(${how}) as of ${when} ET:\n\n` +
       `${heads}\n\n` +
       items.map((i) => `${i.label}: ${i.value}`).join("\n") +
-      `\n\nKeep this email private. If you didn't make this change, reset it right away at https://pinkpoodle.dog/admin.html.`,
+      `\n\nKeep this email private. If you didn't make this change, reset it right away at https://thepinkpoodle.dog/admin.html.`,
     html:
       `<div style="font-family:Arial,sans-serif;max-width:520px;color:#2c1c26">` +
       `<h2 style="color:#b83372">🔑 Your Pink Poodle credential copy</h2>` +
@@ -1061,7 +1061,7 @@ async function emailCredentialCopy({ passphrase, pin, how }) {
       `<ul style="font-size:15px">` +
       items.map((i) => `<li>${esc(i.label)}: <code style="background:#fbe6ef;padding:2px 6px;border-radius:5px">${esc(i.value)}</code></li>`).join("") +
       `</ul>` +
-      `<p style="color:#6a5560;font-size:13px">Keep this email private. If you didn't make this change, <a href="https://pinkpoodle.dog/admin.html">reset it</a> right away.</p></div>`,
+      `<p style="color:#6a5560;font-size:13px">Keep this email private. If you didn't make this change, <a href="https://thepinkpoodle.dog/admin.html">reset it</a> right away.</p></div>`,
   });
 }
 
@@ -1135,7 +1135,7 @@ function timingSafeEqualStr(a, b) {
 exports.pinkPoodleBook = onRequest(
   {
     secrets: [SENDGRID_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, SQUARE_ACCESS_TOKEN],
-    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*(pinkpoodle|thepinkpoodle)\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "256MiB",
     timeoutSeconds: 30,
     region: "us-central1",
@@ -1201,7 +1201,7 @@ exports.pinkPoodleBook = onRequest(
             square_.attempted = true;
             const { customer, created } = await square.findOrCreateCustomer(cfg, {
               name, phone, email,
-              note: [dog && `Dog: ${dog}`, breed && `Breed: ${breed}`].filter(Boolean).join(" · ") || "Booked via pinkpoodle.dog",
+              note: [dog && `Dog: ${dog}`, breed && `Breed: ${breed}`].filter(Boolean).join(" · ") || "Booked via thepinkpoodle.dog",
             });
             square_.customerId = customer && customer.id;
             square_.customerCreated = created;
@@ -1213,7 +1213,7 @@ exports.pinkPoodleBook = onRequest(
                 serviceVariationId: cfg.serviceVariationId,
                 teamMemberId: cfg.teamMemberId,
                 customerNote: [service, notes].filter(Boolean).join(" — ").slice(0, 1500),
-                sellerNote: `Web request via pinkpoodle.dog — please confirm${service ? " · " + service : ""}`,
+                sellerNote: `Web request via thepinkpoodle.dog — please confirm${service ? " · " + service : ""}`,
               });
               square_.bookingId = booking && booking.id;
               square_.status = booking && booking.status;
@@ -1253,7 +1253,7 @@ exports.pinkPoodleBook = onRequest(
       ].filter(([, v]) => v);
 
       const textBody =
-        `${tag}New booking request from pinkpoodle.dog\n\n` +
+        `${tag}New booking request from thepinkpoodle.dog\n\n` +
         rows.map(([k, v]) => `${k}: ${v}`).join("\n") +
         (squareLine ? `\n\n${squareLine}` : "") +
         (phone ? `\n\nTap to text ${name}: sms:${phone}` : "");
@@ -1261,7 +1261,7 @@ exports.pinkPoodleBook = onRequest(
       const html =
         `<div style="font-family:Nunito,Arial,sans-serif;max-width:560px;margin:0 auto;color:#2c1c26;">` +
         `<h2 style="color:#b83372;margin-bottom:4px;">🐩 ${esc(tag)}New Booking Request</h2>` +
-        `<p style="color:#6a5560;margin-top:0;">Sent from the booking form on pinkpoodle.dog</p>` +
+        `<p style="color:#6a5560;margin-top:0;">Sent from the booking form on thepinkpoodle.dog</p>` +
         `<table style="border-collapse:collapse;width:100%;margin:14px 0;">` +
         rows
           .map(
@@ -1303,7 +1303,7 @@ exports.pinkPoodleBook = onRequest(
               (stylist ? ` → wants ${stylist}` : "") +
               (service ? ` — ${service}` : "") +
               (when ? `, ${when}` : "") +
-              ` · via pinkpoodle.dog` +
+              ` · via thepinkpoodle.dog` +
               (square_.bookingId ? ` · ✅ on Square calendar` : "")
           );
           texted = true;
@@ -1344,7 +1344,7 @@ exports.pinkPoodleBook = onRequest(
 exports.pinkPoodleReset = onRequest(
   {
     secrets: [SENDGRID_API_KEY, PP_ADMIN_KEY],
-    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*(pinkpoodle|thepinkpoodle)\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "256MiB",
     timeoutSeconds: 30,
     region: "us-central1",
@@ -1373,7 +1373,7 @@ exports.pinkPoodleReset = onRequest(
           createdAt: now(),
         });
 
-        const link = "https://pinkpoodle.dog/admin.html?reset=" + token;
+        const link = "https://thepinkpoodle.dog/admin.html?reset=" + token;
         // testOnly restricts delivery to the fixed backup-admin address only —
         // never an arbitrary recipient, so it can't be abused to spam others.
         const recipients = b.testOnly === true ? [BACKUP_ADMIN_EMAIL] : [OWNER_EMAIL, BACKUP_ADMIN_EMAIL];
@@ -1906,7 +1906,7 @@ async function reverseLedger(ledgerId, memo) {
 
 exports.pinkPoodleSpa = onRequest(
   {
-    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/],
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*(pinkpoodle|thepinkpoodle)\.dog$/, /^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/],
     memory: "256MiB",
     timeoutSeconds: 30,
     region: "us-central1",
@@ -2656,7 +2656,7 @@ exports.pinkPoodleSpa = onRequest(
  * ========================================================================== */
 exports.pinkPoodlePush = onRequest(
   {
-    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*(pinkpoodle|thepinkpoodle)\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "256MiB",
     timeoutSeconds: 30,
     region: "us-central1",
@@ -2790,7 +2790,7 @@ exports.pinkPoodleSpaCron = onSchedule(
           if (!o.phone && !o.email) continue;
           const when = t.apptTime ? ` at ${t.apptTime}` : "";
           const pet = (t.pet && t.pet.name) || "your pup";
-          const confirmUrl = `https://pinkpoodle.dog/spa.html?confirm=${encodeURIComponent(t.code || "")}`;
+          const confirmUrl = `https://thepinkpoodle.dog/spa.html?confirm=${encodeURIComponent(t.code || "")}`;
           const used = await notifyCustomer({
             phone: o.phone, email: o.email,
             smsBody: `The Pink Poodle 🐩: reminder — ${pet}'s grooming is tomorrow${when}. Confirm: ${confirmUrl} · Reschedule: text (304) 921-2748.`,
