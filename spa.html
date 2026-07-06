@@ -133,6 +133,8 @@
         <button type="button" class="pill" data-sub="vaxdue">💉 Vaccinations</button>
         <button type="button" class="pill" data-sub="upcoming">📅 Upcoming</button>
         <button type="button" class="pill" data-sub="waitlist">🎟️ Waitlist</button>
+        <button type="button" class="pill" data-sub="retail">🛍️ Retail</button>
+        <button type="button" class="pill" data-sub="route">🚐 Route</button>
         <button type="button" class="pill" data-sub="reports">📊 Reports</button>
         <button type="button" class="pill" data-sub="fees">⚙️ Fees &amp; PIN</button>
       </div>
@@ -206,6 +208,46 @@
           <button class="btn btn--soft btn--sm" id="waitlistRefresh" type="button">↻ Refresh</button>
         </div>
         <div id="waitlistBody"></div>
+      </div>
+
+      <!-- Retail / inventory -->
+      <div class="staff__pane hidden" data-sub="retail">
+        <h1>Retail 🛍️</h1>
+        <p class="lead">Track shampoo, bows, treats &amp; more. Stock drops automatically when you add a product at checkout.</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.5rem 0;align-items:center">
+          <button class="btn btn--primary btn--sm" id="invAddBtn" data-min-role="manager" type="button">＋ New product</button>
+          <button class="btn btn--soft btn--sm" id="invRefresh" type="button">↻ Refresh</button>
+          <span class="muted" id="invStockValue" style="margin-left:auto"></span>
+        </div>
+        <div id="invBody"></div>
+      </div>
+
+      <!-- Mobile-grooming route optimizer -->
+      <div class="staff__pane hidden" data-sub="route">
+        <h1>Route 🚐</h1>
+        <p class="lead">For mobile grooming: enter the day's stops (or pull the schedule) and get the shortest driving order.</p>
+        <div class="card" data-min-role="manager" style="margin-bottom:0.8rem">
+          <h2 style="margin-top:0">Home base</h2>
+          <p class="muted" style="margin-top:-0.2rem">Where the van starts and (optionally) returns each day.</p>
+          <div class="field"><label>Base address</label><input type="text" id="rtBaseAddr" placeholder="708 Stafford Dr, Princeton, WV" /></div>
+          <div class="row2">
+            <div class="field"><label>Lat (optional)</label><input type="number" id="rtBaseLat" step="0.0001" inputmode="decimal" /></div>
+            <div class="field"><label>Lng (optional)</label><input type="number" id="rtBaseLng" step="0.0001" inputmode="decimal" /></div>
+          </div>
+          <label class="check"><input type="checkbox" id="rtRoundTrip" checked /> <span>Return to base at the end</span></label>
+          <label class="check"><input type="checkbox" id="rtAutoGeo" checked /> <span>Auto-locate addresses (OpenStreetMap)</span></label>
+          <button class="btn btn--primary btn--block" id="rtSaveCfg" type="button" style="margin-top:0.5rem">Save base</button>
+        </div>
+        <div class="card">
+          <h2 style="margin-top:0">Today's stops</h2>
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.4rem 0">
+            <button class="btn btn--soft btn--sm" id="rtPull" type="button">📅 Pull today's schedule</button>
+            <button class="btn btn--soft btn--sm" id="rtAddStop" type="button">＋ Add stop</button>
+          </div>
+          <div id="rtStops"></div>
+          <button class="btn btn--gold btn--block" id="rtOptimize" type="button" style="margin-top:0.6rem">🧭 Optimize route</button>
+        </div>
+        <div id="rtResult" style="margin-top:0.8rem"></div>
       </div>
 
       <!-- Reports / KPIs -->
@@ -295,7 +337,10 @@
     <div class="modal__box">
       <h2 id="checkoutTitle">Checkout</h2>
       <div id="coItems"></div>
-      <button class="btn btn--soft btn--sm" id="coAddItem" type="button">＋ Add line item</button>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button class="btn btn--soft btn--sm" id="coAddItem" type="button">＋ Add line item</button>
+        <button class="btn btn--soft btn--sm" id="coAddProduct" type="button">🛍️ Add product</button>
+      </div>
       <div class="row2" style="margin-top:0.6rem">
         <div class="field"><label>Discount ($)</label><input type="number" id="coDiscount" min="0" step="1" value="0" inputmode="decimal" /></div>
         <div class="field"><label>Tip ($)</label><input type="number" id="coTip" min="0" step="1" value="0" inputmode="decimal" /></div>
@@ -307,6 +352,57 @@
       <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
         <button class="btn btn--soft" id="coCancel" type="button">Cancel</button>
         <button class="btn btn--gold btn--block" id="coSave" type="button">Take payment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Product picker modal (retail at checkout) -->
+  <div class="modal" id="productModal">
+    <div class="modal__box">
+      <h2>Add a product 🛍️</h2>
+      <input type="text" id="prodSearch" placeholder="Search products…" style="margin-bottom:0.6rem" />
+      <div id="prodPickBody" style="max-height:50vh;overflow:auto"></div>
+      <div style="margin-top:0.8rem"><button class="btn btn--soft btn--block" id="prodPickClose" type="button">Close</button></div>
+    </div>
+  </div>
+
+  <!-- Inventory product editor modal -->
+  <div class="modal" id="invModal">
+    <div class="modal__box">
+      <h2 id="invModalTitle">New product</h2>
+      <div class="field"><label>Name</label><input type="text" id="invName" placeholder="e.g. Blueberry facial shampoo" /></div>
+      <div class="row2">
+        <div class="field"><label>SKU (optional)</label><input type="text" id="invSku" /></div>
+        <div class="field"><label>Category</label><input type="text" id="invCategory" placeholder="Shampoo, Bows…" /></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Sale price ($)</label><input type="number" id="invPrice" min="0" step="0.01" inputmode="decimal" /></div>
+        <div class="field"><label>Unit cost ($)</label><input type="number" id="invCost" min="0" step="0.01" inputmode="decimal" /></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Qty on hand</label><input type="number" id="invQty" min="0" step="1" inputmode="numeric" value="0" /></div>
+        <div class="field"><label>Low-stock alert at</label><input type="number" id="invThreshold" min="0" step="1" inputmode="numeric" value="3" /></div>
+      </div>
+      <label class="check"><input type="checkbox" id="invActive" checked /> <span>Active (sellable)</span></label>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
+        <button class="btn btn--soft" id="invCancel" type="button">Cancel</button>
+        <button class="btn btn--primary btn--block" id="invSave" type="button">Save product</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stock adjust modal -->
+  <div class="modal" id="invAdjModal">
+    <div class="modal__box">
+      <h2 id="invAdjTitle">Adjust stock</h2>
+      <div class="field"><label>Change (+ receive, − remove)</label><input type="number" id="invAdjDelta" step="1" inputmode="numeric" placeholder="e.g. 12 or -1" /></div>
+      <div class="field"><label>Reason</label>
+        <select id="invAdjReason"><option value="received">Received / restock</option><option value="shrinkage">Shrinkage / loss</option><option value="correction">Manual correction</option></select>
+      </div>
+      <div class="field"><label>Unit cost for this batch ($, optional)</label><input type="number" id="invAdjCost" min="0" step="0.01" inputmode="decimal" /></div>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
+        <button class="btn btn--soft" id="invAdjCancel" type="button">Cancel</button>
+        <button class="btn btn--primary btn--block" id="invAdjSave" type="button">Apply</button>
       </div>
     </div>
   </div>

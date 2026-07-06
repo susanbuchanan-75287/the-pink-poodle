@@ -370,6 +370,8 @@
     if (sub === 'vaxdue') loadVaxDue();
     if (sub === 'upcoming') loadUpcoming();
     if (sub === 'waitlist') loadWaitlist();
+    if (sub === 'retail') loadInventory();
+    if (sub === 'route') loadRoutePane();
     if (sub === 'reports') loadReport();
     if (sub === 'fees') loadFees();
   }
@@ -434,6 +436,167 @@
     }).catch(function (e) { $('waitlistBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
   }
   var wlRefresh = $('waitlistRefresh'); if (wlRefresh) wlRefresh.addEventListener('click', loadWaitlist);
+
+  /* =================================================================
+     STAFF — retail / inventory
+     ================================================================= */
+  var invCache = [];
+  var invEditId = null;
+  var invAdjId = null;
+  function loadInventory() {
+    $('invBody').innerHTML = '<p class="muted">Loading…</p>';
+    api('spaInventoryList', { pin: staffPin }).then(function (res) {
+      invCache = res.products || [];
+      $('invStockValue').textContent = 'Stock value: ' + money(res.stockValue || 0);
+      if (!invCache.length) { $('invBody').innerHTML = '<div class="empty"><div class="big">🛍️</div><p>No products yet. Add shampoo, bows, treats &amp; more.</p></div>'; return; }
+      var mgr = can('manager');
+      $('invBody').innerHTML = invCache.map(function (p) {
+        var low = p.lowStock ? '<span class="statuschip statuschip--ready">Low stock</span>' : '';
+        var inactive = !p.active ? '<span class="statuschip">Retired</span>' : '';
+        var meta = [p.category, p.sku ? 'SKU ' + p.sku : ''].filter(Boolean).join(' · ');
+        var btns = mgr ? (
+          '<button class="btn btn--soft btn--sm" data-inv-adj="' + esc(p.id) + '" type="button">± Stock</button>' +
+          '<button class="btn btn--soft btn--sm" data-inv-edit="' + esc(p.id) + '" type="button">✎ Edit</button>' +
+          (p.active ? '<button class="btn btn--soft btn--sm" data-inv-del="' + esc(p.id) + '" type="button">✕ Retire</button>' : '')
+        ) : '';
+        return '<div class="card"><div style="display:flex;justify-content:space-between;align-items:start;gap:0.5rem">' +
+          '<div><strong>' + esc(p.name) + '</strong> ' + low + ' ' + inactive +
+          (meta ? '<br><span class="muted">' + esc(meta) + '</span>' : '') +
+          '<br><span class="muted">' + money(p.price) + ' · cost ' + money(p.cost) + '</span></div>' +
+          '<div style="text-align:right"><div class="total__amt" style="font-size:1.3rem">' + p.qty + '</div><span class="muted">on hand</span></div></div>' +
+          (btns ? '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">' + btns + '</div>' : '') +
+          '</div>';
+      }).join('');
+      $('invBody').querySelectorAll('[data-inv-adj]').forEach(function (btn) { btn.addEventListener('click', function () { openInvAdjust(btn.dataset.invAdj); }); });
+      $('invBody').querySelectorAll('[data-inv-edit]').forEach(function (btn) { btn.addEventListener('click', function () { openInvEditor(btn.dataset.invEdit); }); });
+      $('invBody').querySelectorAll('[data-inv-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (!confirm('Retire this product? Past sales keep their history.')) return;
+          api('spaInventoryDelete', { pin: staffPin, id: btn.dataset.invDel }).then(function () { toast('Retired'); loadInventory(); }).catch(function (e) { toast(e.message); });
+        });
+      });
+    }).catch(function (e) { $('invBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  function openInvEditor(id) {
+    var p = invCache.filter(function (x) { return x.id === id; })[0];
+    invEditId = id || null;
+    $('invModalTitle').textContent = p ? 'Edit product' : 'New product';
+    $('invName').value = p ? p.name : '';
+    $('invSku').value = p ? p.sku : '';
+    $('invCategory').value = p ? p.category : '';
+    $('invPrice').value = p ? p.price : '';
+    $('invCost').value = p ? p.cost : '';
+    $('invQty').value = p ? p.qty : 0;
+    $('invQty').disabled = !!p; // qty is managed via stock adjust once created
+    $('invThreshold').value = p ? p.lowStockThreshold : 3;
+    $('invActive').checked = p ? p.active : true;
+    $('invModal').classList.add('open');
+  }
+  function openInvAdjust(id) {
+    invAdjId = id;
+    var p = invCache.filter(function (x) { return x.id === id; })[0];
+    $('invAdjTitle').textContent = 'Adjust stock — ' + (p ? p.name : '');
+    $('invAdjDelta').value = ''; $('invAdjReason').value = 'received'; $('invAdjCost').value = p ? p.cost : '';
+    $('invAdjModal').classList.add('open');
+  }
+  var invAddBtn = $('invAddBtn'); if (invAddBtn) invAddBtn.addEventListener('click', function () { openInvEditor(null); });
+  var invRefresh = $('invRefresh'); if (invRefresh) invRefresh.addEventListener('click', loadInventory);
+  var invCancel = $('invCancel'); if (invCancel) invCancel.addEventListener('click', function () { $('invModal').classList.remove('open'); });
+  var invSave = $('invSave'); if (invSave) invSave.addEventListener('click', function () {
+    var name = $('invName').value.trim();
+    if (!name) { toast('Product name is required'); return; }
+    invSave.disabled = true;
+    api('spaInventorySave', {
+      pin: staffPin, id: invEditId, name: name, sku: $('invSku').value.trim(), category: $('invCategory').value.trim(),
+      price: Number($('invPrice').value) || 0, cost: Number($('invCost').value) || 0,
+      qty: Number($('invQty').value) || 0, lowStockThreshold: Number($('invThreshold').value) || 0,
+      active: $('invActive').checked
+    }).then(function () { $('invModal').classList.remove('open'); toast('Saved ✓'); loadInventory(); })
+      .catch(function (e) { toast(e.message); }).then(function () { invSave.disabled = false; });
+  });
+  var invAdjCancel = $('invAdjCancel'); if (invAdjCancel) invAdjCancel.addEventListener('click', function () { $('invAdjModal').classList.remove('open'); });
+  var invAdjSave = $('invAdjSave'); if (invAdjSave) invAdjSave.addEventListener('click', function () {
+    var delta = Math.floor(Number($('invAdjDelta').value) || 0);
+    if (!delta) { toast('Enter a non-zero change'); return; }
+    invAdjSave.disabled = true;
+    api('spaInventoryAdjust', { pin: staffPin, id: invAdjId, delta: delta, reason: $('invAdjReason').value, unitCost: Number($('invAdjCost').value) || 0 })
+      .then(function () { $('invAdjModal').classList.remove('open'); toast('Stock updated ✓'); loadInventory(); })
+      .catch(function (e) { toast(e.message); }).then(function () { invAdjSave.disabled = false; });
+  });
+
+  /* =================================================================
+     STAFF — mobile-grooming route optimizer
+     ================================================================= */
+  var rtStops = [];
+  function loadRoutePane() {
+    api('spaRouteConfig', { pin: staffPin }).then(function (res) {
+      var c = res.config || {};
+      $('rtBaseAddr').value = c.baseLabel || '';
+      $('rtBaseLat').value = (c.baseLat != null ? c.baseLat : '');
+      $('rtBaseLng').value = (c.baseLng != null ? c.baseLng : '');
+      $('rtRoundTrip').checked = c.roundTrip !== false;
+      $('rtAutoGeo').checked = c.autoGeocode !== false;
+    }).catch(function () {});
+    if (!rtStops.length) rtStops = [{ label: '', address: '' }];
+    drawRtStops();
+  }
+  function drawRtStops() {
+    $('rtStops').innerHTML = rtStops.map(function (s, i) {
+      return '<div class="card" style="padding:0.6rem;margin-bottom:0.4rem">' +
+        '<div class="row2" style="gap:0.4rem"><div class="field" style="margin:0"><label>Pet / client</label><input type="text" data-rt-label="' + i + '" value="' + esc(s.label || '') + '" /></div>' +
+        '<button class="btn btn--soft btn--sm" data-rt-del="' + i + '" type="button" style="height:44px;align-self:end">✕</button></div>' +
+        '<div class="field" style="margin:0.3rem 0 0"><label>Address</label><input type="text" data-rt-addr="' + i + '" value="' + esc(s.address || '') + '" placeholder="Street, City, State" /></div>' +
+        '</div>';
+    }).join('');
+    $('rtStops').querySelectorAll('[data-rt-label]').forEach(function (el) { el.addEventListener('input', function () { rtStops[el.dataset.rtLabel].label = el.value; }); });
+    $('rtStops').querySelectorAll('[data-rt-addr]').forEach(function (el) { el.addEventListener('input', function () { rtStops[el.dataset.rtAddr].address = el.value; }); });
+    $('rtStops').querySelectorAll('[data-rt-del]').forEach(function (el) { el.addEventListener('click', function () { rtStops.splice(el.dataset.rtDel, 1); if (!rtStops.length) rtStops = [{ label: '', address: '' }]; drawRtStops(); }); });
+  }
+  var rtAddStop = $('rtAddStop'); if (rtAddStop) rtAddStop.addEventListener('click', function () { rtStops.push({ label: '', address: '' }); drawRtStops(); });
+  var rtBaseAddrEl = $('rtBaseAddr'); if (rtBaseAddrEl) rtBaseAddrEl.addEventListener('input', function () { $('rtBaseLat').value = ''; $('rtBaseLng').value = ''; });
+  var rtSaveCfg = $('rtSaveCfg'); if (rtSaveCfg) rtSaveCfg.addEventListener('click', function () {
+    rtSaveCfg.disabled = true;
+    var payload = { pin: staffPin, roundTrip: $('rtRoundTrip').checked, autoGeocode: $('rtAutoGeo').checked };
+    var lat = $('rtBaseLat').value, lng = $('rtBaseLng').value;
+    if (lat !== '' && lng !== '') { payload.baseLat = Number(lat); payload.baseLng = Number(lng); payload.baseLabel = $('rtBaseAddr').value.trim(); }
+    else if ($('rtBaseAddr').value.trim()) { payload.baseAddress = $('rtBaseAddr').value.trim(); }
+    api('spaRouteConfigSave', payload).then(function (res) { toast('Base saved ✓'); var c = res.config || {}; $('rtBaseLat').value = c.baseLat; $('rtBaseLng').value = c.baseLng; })
+      .catch(function (e) { toast(e.message); }).then(function () { rtSaveCfg.disabled = false; });
+  });
+  var rtPull = $('rtPull'); if (rtPull) rtPull.addEventListener('click', function () {
+    rtPull.disabled = true;
+    $('rtResult').innerHTML = '<p class="muted">Pulling &amp; optimizing today\'s schedule…</p>';
+    api('spaRouteOptimize', { pin: staffPin }).then(renderRoute).catch(function (e) { toast(e.message); $('rtResult').innerHTML = ''; }).then(function () { rtPull.disabled = false; });
+  });
+  var rtOptimize = $('rtOptimize'); if (rtOptimize) rtOptimize.addEventListener('click', function () {
+    var stops = rtStops.filter(function (s) { return (s.address && s.address.trim()) || (Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lng))); });
+    if (!stops.length) { toast('Add at least one stop with an address'); return; }
+    rtOptimize.disabled = true;
+    $('rtResult').innerHTML = '<p class="muted">Optimizing… (locating addresses can take a moment)</p>';
+    api('spaRouteOptimize', { pin: staffPin, stops: stops }).then(renderRoute).catch(function (e) { toast(e.message); $('rtResult').innerHTML = ''; }).then(function () { rtOptimize.disabled = false; });
+  });
+  function renderRoute(res) {
+    var order = res.order || [];
+    var mapsUrl = '';
+    if (order.length) {
+      var pts = [res.base.lat + ',' + res.base.lng].concat(order.map(function (s) { return s.lat + ',' + s.lng; }));
+      if (res.roundTrip) pts.push(res.base.lat + ',' + res.base.lng);
+      mapsUrl = 'https://www.google.com/maps/dir/' + pts.join('/');
+    }
+    var rows = order.map(function (s, i) {
+      return '<div class="card" style="padding:0.6rem;margin-bottom:0.4rem;display:flex;gap:0.7rem;align-items:center">' +
+        '<div class="total__amt" style="font-size:1.2rem;min-width:1.6rem">' + (i + 1) + '</div>' +
+        '<div><strong>' + esc(s.label || 'Stop') + '</strong>' + (s.apptTime ? ' <span class="muted">' + esc(s.apptTime) + '</span>' : '') +
+        (s.address ? '<br><span class="muted">' + esc(s.address) + '</span>' : '') + '</div></div>';
+    }).join('');
+    var unresolved = (res.unresolved && res.unresolved.length)
+      ? '<p class="muted" style="color:#f7c9dd">⚠ Couldn\'t locate: ' + res.unresolved.map(esc).join(', ') + ' — add lat/lng or check the address.</p>' : '';
+    $('rtResult').innerHTML = '<div class="card"><h2 style="margin-top:0">Optimized route 🧭</h2>' +
+      '<p class="lead">' + order.length + ' stop' + (order.length === 1 ? '' : 's') + ' · ~' + res.miles + ' mi · ~' + res.driveMinutes + ' min driving' + (res.roundTrip ? ' (round trip)' : '') + '</p>' +
+      unresolved +
+      (mapsUrl ? '<a class="btn btn--gold btn--block" href="' + mapsUrl + '" target="_blank" rel="noopener" style="margin-bottom:0.6rem">🗺️ Open in Google Maps</a>' : '') +
+      rows + '</div>';
+  }
 
   /* =================================================================
      STAFF — status board
@@ -582,12 +745,20 @@
   }
   function drawCoItems() {
     $('coItems').innerHTML = coState.items.map(function (it, i) {
+      if (it.invId) {
+        return '<div class="row2" style="grid-template-columns:1fr 56px 90px 34px;gap:0.4rem;align-items:center;margin-bottom:0.4rem">' +
+          '<div><span class="statuschip statuschip--go">🛍️</span> ' + esc(it.label) + '</div>' +
+          '<input type="number" data-ci-qty="' + i + '" value="' + (it.qty || 1) + '" min="1" step="1" inputmode="numeric" title="Qty" />' +
+          '<input type="number" data-ci-amt="' + i + '" value="' + it.amount + '" min="0" step="1" inputmode="decimal" />' +
+          '<button class="btn btn--soft btn--sm" data-ci-del="' + i + '" type="button">✕</button></div>';
+      }
       return '<div class="row2" style="grid-template-columns:1fr 90px 34px;gap:0.4rem;align-items:center;margin-bottom:0.4rem">' +
         '<input type="text" data-ci-label="' + i + '" value="' + esc(it.label) + '" placeholder="Item" />' +
         '<input type="number" data-ci-amt="' + i + '" value="' + it.amount + '" min="0" step="1" inputmode="decimal" />' +
         '<button class="btn btn--soft btn--sm" data-ci-del="' + i + '" type="button">✕</button></div>';
     }).join('');
     $('coItems').querySelectorAll('[data-ci-label]').forEach(function (el) { el.addEventListener('input', function () { coState.items[el.dataset.ciLabel].label = el.value; }); });
+    $('coItems').querySelectorAll('[data-ci-qty]').forEach(function (el) { el.addEventListener('input', function () { var it = coState.items[el.dataset.ciQty]; it.qty = Math.max(1, Math.floor(Number(el.value) || 1)); it.amount = Math.round((it.unitPrice || 0) * it.qty * 100) / 100; drawCoItems(); }); });
     $('coItems').querySelectorAll('[data-ci-amt]').forEach(function (el) { el.addEventListener('input', function () { coState.items[el.dataset.ciAmt].amount = Math.max(0, Number(el.value) || 0); coTotal(); }); });
     $('coItems').querySelectorAll('[data-ci-del]').forEach(function (el) { el.addEventListener('click', function () { coState.items.splice(el.dataset.ciDel, 1); drawCoItems(); coTotal(); }); });
     coTotal();
@@ -598,6 +769,35 @@
     $('coTotal').textContent = money(total);
   }
   $('coAddItem').addEventListener('click', function () { coState.items.push({ label: '', amount: 0 }); drawCoItems(); });
+  var coAddProduct = $('coAddProduct'); if (coAddProduct) coAddProduct.addEventListener('click', function () {
+    $('prodSearch').value = '';
+    $('productModal').classList.add('open');
+    var draw = function () {
+      var products = (invCache || []).filter(function (p) { return p.active; });
+      if (!products.length) { $('prodPickBody').innerHTML = '<p class="muted">No products yet — add some in the Retail tab.</p>'; return; }
+      $('prodPickBody').innerHTML = products.map(function (p) {
+        var low = p.qty <= 0 ? ' <span class="statuschip statuschip--ready">Out</span>' : (p.lowStock ? ' <span class="statuschip statuschip--ready">Low</span>' : '');
+        return '<button class="btn btn--soft btn--block" data-pick="' + esc(p.id) + '" type="button" style="text-align:left;margin-bottom:0.35rem">' +
+          '<strong>' + esc(p.name) + '</strong> — ' + money(p.price) + low + ' <span class="muted">(' + p.qty + ' on hand)</span></button>';
+      }).join('');
+      $('prodPickBody').querySelectorAll('[data-pick]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var p = invCache.filter(function (x) { return x.id === btn.dataset.pick; })[0]; if (!p) return;
+          var existing = coState.items.filter(function (it) { return it.invId === p.id; })[0];
+          if (existing) { existing.qty = (existing.qty || 1) + 1; existing.amount = Math.round((existing.unitPrice || p.price) * existing.qty * 100) / 100; }
+          else { coState.items.push({ label: p.name, invId: p.id, qty: 1, unitPrice: p.price, amount: p.price }); }
+          $('productModal').classList.remove('open'); drawCoItems();
+        });
+      });
+    };
+    if (!invCache.length) { api('spaInventoryList', { pin: staffPin }).then(function (res) { invCache = res.products || []; draw(); }).catch(function (e) { toast(e.message); }); }
+    else draw();
+  });
+  var prodPickClose = $('prodPickClose'); if (prodPickClose) prodPickClose.addEventListener('click', function () { $('productModal').classList.remove('open'); });
+  var prodSearch = $('prodSearch'); if (prodSearch) prodSearch.addEventListener('input', function () {
+    var q = prodSearch.value.toLowerCase();
+    $('prodPickBody').querySelectorAll('[data-pick]').forEach(function (btn) { btn.style.display = btn.textContent.toLowerCase().indexOf(q) >= 0 ? '' : 'none'; });
+  });
   $('coDiscount').addEventListener('input', coTotal);
   $('coTip').addEventListener('input', coTotal);
   $('coCancel').addEventListener('click', function () { $('checkoutModal').classList.remove('open'); });
@@ -1274,6 +1474,8 @@
       kpi(money(r.revenue), 'Revenue') +
       kpi(r.visits, 'Paid visits') +
       kpi(money(r.avgTicket), 'Avg ticket') +
+      kpi(money(r.retailRevenue), 'Retail sales') +
+      kpi(money(r.grossProfit), 'Gross profit') +
       kpi(money(r.tips), 'Tips') +
       kpi(money(r.deposits), 'Deposits') +
       kpi(r.booked, 'Booked') +
@@ -1292,7 +1494,12 @@
           return '<div style="display:flex;justify-content:space-between;padding:0.15rem 0"><span class="muted">' + esc(d.day) + '</span><strong>' + money(d.revenue) + '</strong></div>';
         }).join('') + '</div>'
       : '';
-    $('reportBody').innerHTML = kpis + svc + days;
+    var prod = (r.byProduct || []).length
+      ? '<div class="card" style="margin-top:0.6rem"><h2 style="margin-top:0;font-size:1rem">Top products (' + (r.unitsSold || 0) + ' sold)</h2>' + r.byProduct.map(function (p) {
+          return '<div style="display:flex;justify-content:space-between;padding:0.15rem 0"><span>' + esc(p.product) + '</span><strong>' + p.units + '</strong></div>';
+        }).join('') + '</div>'
+      : '';
+    $('reportBody').innerHTML = kpis + svc + prod + days;
   }
   document.querySelectorAll('#reportRange .pill').forEach(function (b) { b.addEventListener('click', function () { reportRange = b.dataset.range; loadReport(); }); });
   $('reportRefresh').addEventListener('click', loadReport);
@@ -1300,12 +1507,14 @@
     var r = reportCache; if (!r) { toast('Nothing to export yet.'); return; }
     var rows = [['Metric', 'Value']];
     rows.push(['Range', r.range]); rows.push(['Since', r.since]);
-    rows.push(['Revenue', r.revenue]); rows.push(['Paid visits', r.visits]); rows.push(['Avg ticket', r.avgTicket]);
+    rows.push(['Revenue', r.revenue]); rows.push(['Retail sales', r.retailRevenue]); rows.push(['COGS', r.cogs]); rows.push(['Gross profit', r.grossProfit]); rows.push(['Paid visits', r.visits]); rows.push(['Avg ticket', r.avgTicket]);
     rows.push(['Tips', r.tips]); rows.push(['Deposits', r.deposits]); rows.push(['Booked', r.booked]);
     rows.push(['No-shows', r.noShows]); rows.push(['No-show rate %', r.noShowRate]); rows.push(['No-show fees', r.noShowFees]);
     rows.push(['Cancellations', r.cancels]); rows.push(['Returning visits', r.returningVisits]);
     rows.push([]); rows.push(['Service', 'Count']);
     (r.byService || []).forEach(function (s) { rows.push([s.service, s.count]); });
+    rows.push([]); rows.push(['Product', 'Units sold']);
+    (r.byProduct || []).forEach(function (p) { rows.push([p.product, p.units]); });
     rows.push([]); rows.push(['Day', 'Revenue']);
     (r.byDay || []).forEach(function (d) { rows.push([d.day, d.revenue]); });
     dl('pink-poodle-report-' + r.range + '-' + todayISO() + '.csv', 'text/csv', rows.map(csvRow).join('\r\n'));

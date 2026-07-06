@@ -1580,6 +1580,8 @@ const SPA_TICKETS = "pp_spa_tickets";
 const SPA_LEDGER = "pp_spa_ledger";
 const SPA_CLIENTS = "pp_spa_clients";
 const SPA_WAITLIST = "pp_spa_waitlist";
+const SPA_INVENTORY = "pp_spa_inventory";
+const SPA_GEOCACHE = "pp_spa_geocache";
 const SPA_PIN_DEFAULT = "0221";
 const SPA_STEPS = ["Requested", "Checked in", "Bathing", "Grooming", "Finishing", "Ready for pickup", "Picked up"];
 const DEFAULT_FEES = [
@@ -1937,6 +1939,127 @@ function nowMs() { return Date.now(); }
 function etHour() {
   return Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }).format(new Date()));
 }
+
+/* ---- Mobile-grooming route optimization ----------------------------------
+ * A mobile groomer visits several homes in a day. Given each stop's lat/lng
+ * (plus a home base), we compute a near-optimal visit order that minimizes
+ * total drive distance. This is a self-contained solver — no paid routing
+ * API: nearest-neighbor to seed a tour, then 2-opt to remove crossings.
+ * Distances are great-circle (haversine) miles, a good proxy for a compact
+ * service area. Optional street geocoding uses OpenStreetMap Nominatim
+ * (free, cached in Firestore, rate-limited), degrading gracefully to
+ * manually entered coordinates when unavailable.
+ * ------------------------------------------------------------------------- */
+function haversineMi(a, b) {
+  const toRad = (x) => (x * Math.PI) / 180;
+  const R = 3958.8; // Earth radius, miles
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Total distance of an ordered open path base -> stops (no return leg). */
+function pathDistance(base, ordered) {
+  let d = 0;
+  let prev = base;
+  for (const s of ordered) { d += haversineMi(prev, s); prev = s; }
+  return d;
+}
+
+/**
+ * Order `stops` (each {lat,lng,...}) starting from `base` to minimize total
+ * travel. Returns { order: stops[], miles, legs:[{fromIdx,toIdx,miles}] }.
+ * base defaults to the salon if omitted. `roundTrip` adds a return-to-base leg.
+ */
+function optimizeRoute(base, stops, roundTrip) {
+  const pts = stops.filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+  if (pts.length <= 1) {
+    const miles = pts.length ? haversineMi(base, pts[0]) * (roundTrip ? 2 : 1) : 0;
+    return { order: pts, miles: Math.round(miles * 10) / 10, legs: [] };
+  }
+  // 1) Nearest-neighbor seed tour.
+  const remaining = pts.slice();
+  const tour = [];
+  let cur = base;
+  while (remaining.length) {
+    let bi = 0;
+    let bd = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const dd = haversineMi(cur, remaining[i]);
+      if (dd < bd) { bd = dd; bi = i; }
+    }
+    cur = remaining.splice(bi, 1)[0];
+    tour.push(cur);
+  }
+  // 2) 2-opt improvement — reverse segments while it shortens the path.
+  const cost = (arr) => pathDistance(base, arr) + (roundTrip ? haversineMi(arr[arr.length - 1], base) : 0);
+  let improved = true;
+  let best = cost(tour);
+  let guard = 0;
+  while (improved && guard++ < 60) {
+    improved = false;
+    for (let i = 0; i < tour.length - 1; i++) {
+      for (let k = i + 1; k < tour.length; k++) {
+        const next = tour.slice(0, i).concat(tour.slice(i, k + 1).reverse(), tour.slice(k + 1));
+        const c = cost(next);
+        if (c + 1e-9 < best) { tour.splice(0, tour.length, ...next); best = c; improved = true; }
+      }
+    }
+  }
+  const legs = [];
+  let prev = base;
+  tour.forEach((s, i) => { legs.push({ toIdx: i, miles: Math.round(haversineMi(prev, s) * 10) / 10 }); prev = s; });
+  if (roundTrip) legs.push({ toIdx: -1, miles: Math.round(haversineMi(prev, base) * 10) / 10 });
+  return { order: tour, miles: Math.round(best * 10) / 10, legs };
+}
+
+/**
+ * Geocode a free-text address to {lat,lng} via OpenStreetMap Nominatim.
+ * Results are cached in Firestore forever (addresses don't move). Returns
+ * null on any failure so callers can fall back to manual coordinates.
+ * Nominatim usage policy: <=1 req/s, identify via User-Agent — we honor both.
+ */
+async function geocodeAddress(address) {
+  const q = String(address || "").trim();
+  if (q.length < 5) return null;
+  const key = require("crypto").createHash("sha1").update(q.toLowerCase()).digest("hex");
+  const ref = db.collection(SPA_GEOCACHE).doc(key);
+  try {
+    const cached = await ref.get();
+    if (cached.exists) {
+      const c = cached.data();
+      return c && Number.isFinite(c.lat) ? { lat: c.lat, lng: c.lng, cached: true } : null;
+    }
+  } catch (e) { /* fall through to live lookup */ }
+  try {
+    const url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(q);
+    const r = await fetch(url, { headers: { "User-Agent": "PinkPoodleSpa/1.0 (grooming route optimizer; contact groomerbrit@yahoo.com)" } });
+    if (!r.ok) return null;
+    const arr = await r.json();
+    if (!Array.isArray(arr) || !arr.length) { await ref.set({ lat: null, at: now() }).catch(() => {}); return null; }
+    const lat = Number(arr[0].lat);
+    const lng = Number(arr[0].lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    await ref.set({ lat, lng, q, at: now() }).catch(() => {});
+    return { lat, lng };
+  } catch (e) {
+    console.error("geocode failed", e && e.message);
+    return null;
+  }
+}
+
+async function loadRouteConfig() {
+  const def = { baseLat: 37.3665, baseLng: -81.0976, baseLabel: "708 Stafford Dr, Princeton, WV", roundTrip: true, autoGeocode: true };
+  try {
+    const snap = await db.collection("pp_config").doc("spaRoute").get();
+    if (snap.exists) return Object.assign(def, snap.data());
+  } catch (e) { console.error("loadRouteConfig failed", e && e.message); }
+  return def;
+}
+
 
 async function loadReviewConfig() {
   const def = { enabled: false, googleUrl: "", facebookUrl: "https://www.facebook.com/people/The-Pink-Poodle/61556253292828/", delayHours: 3, message: "" };
@@ -2483,6 +2606,176 @@ exports.pinkPoodleSpa = onRequest(
           return res.json({ ok: true });
         }
 
+        /* ---------------- Retail / inventory ---------------- */
+        case "spaInventoryList": {
+          // Any staff role can view stock; low-stock is computed for the badge.
+          const snap = await db.collection(SPA_INVENTORY).limit(500).get();
+          const products = snap.docs.map((d) => {
+            const p = d.data() || {};
+            const qty = Number(p.qty) || 0;
+            const threshold = Number(p.lowStockThreshold) || 0;
+            return {
+              id: d.id, name: p.name || "", sku: p.sku || "", category: p.category || "",
+              price: Number(p.price) || 0, cost: Number(p.cost) || 0, qty,
+              lowStockThreshold: threshold, active: p.active !== false,
+              lowStock: p.active !== false && qty <= threshold,
+            };
+          }).sort((a, c) => a.name.localeCompare(c.name));
+          const stockValue = Math.round(products.filter((p) => p.active).reduce((s, p) => s + p.cost * p.qty, 0) * 100) / 100;
+          return res.json({ ok: true, products, stockValue });
+        }
+
+        case "spaInventorySave": {
+          if (!requireRole(actor, "manager", res)) return;
+          const name = String(b.name || "").trim().slice(0, 80);
+          if (!name) return res.status(400).json({ error: "Product name is required." });
+          const rec = {
+            name, sku: String(b.sku || "").trim().slice(0, 40),
+            category: String(b.category || "").trim().slice(0, 40),
+            price: Math.max(0, Math.round((Number(b.price) || 0) * 100) / 100),
+            cost: Math.max(0, Math.round((Number(b.cost) || 0) * 100) / 100),
+            lowStockThreshold: Math.max(0, Math.floor(Number(b.lowStockThreshold) || 0)),
+            active: b.active !== false, updatedAt: now(),
+          };
+          let id = b.id;
+          if (id) {
+            await db.collection(SPA_INVENTORY).doc(id).set(rec, { merge: true });
+          } else {
+            // New product: seed starting qty here (adjustments handle the rest).
+            rec.qty = Math.max(0, Math.floor(Number(b.qty) || 0));
+            rec.createdAt = now();
+            const r = await db.collection(SPA_INVENTORY).add(rec);
+            id = r.id;
+            // Record the opening stock as inventory asset (no cash side — this is
+            // an opening balance / owner-contributed stock, kept off the P&L).
+            if (rec.qty > 0 && rec.cost > 0) {
+              await postLedger({ memo: `Opening stock — ${name}`, ref: "INV", lines: [{ acct: "Inventory", dr: rec.cost * rec.qty }, { acct: "Owner Equity", cr: rec.cost * rec.qty }] }).catch(() => {});
+            }
+          }
+          return res.json({ ok: true, id });
+        }
+
+        case "spaInventoryAdjust": {
+          // Receive stock, count shrinkage, or manual correction. A positive
+          // delta with a unit cost books Inventory (Dr) / Accounts Payable (Cr);
+          // shrinkage books an expense. Never lets qty go negative.
+          if (!requireRole(actor, "manager", res)) return;
+          if (!b.id) return res.status(400).json({ error: "Missing product id." });
+          const delta = Math.floor(Number(b.delta) || 0);
+          if (!delta) return res.status(400).json({ error: "Enter a non-zero quantity change." });
+          const reason = String(b.reason || "adjust").slice(0, 40);
+          const ref = db.collection(SPA_INVENTORY).doc(b.id);
+          let unitCost = 0;
+          let newQty = 0;
+          let name = "";
+          try {
+            await db.runTransaction(async (tx) => {
+              const d = await tx.get(ref);
+              if (!d.exists) { const e = new Error("Product not found."); e.httpCode = 404; throw e; }
+              const p = d.data() || {};
+              name = p.name || "";
+              unitCost = Number.isFinite(Number(b.unitCost)) && Number(b.unitCost) > 0 ? Number(b.unitCost) : (Number(p.cost) || 0);
+              const cur = Number(p.qty) || 0;
+              newQty = cur + delta;
+              if (newQty < 0) { const e = new Error("That would drop stock below zero."); e.httpCode = 400; throw e; }
+              tx.set(ref, { qty: newQty, updatedAt: now() }, { merge: true });
+            });
+          } catch (e) {
+            if (e && e.httpCode) return res.status(e.httpCode).json({ error: e.message });
+            throw e;
+          }
+          try {
+            const val = Math.round(unitCost * Math.abs(delta) * 100) / 100;
+            if (val > 0) {
+              if (delta > 0 && /receiv|restock|purchase/i.test(reason)) {
+                await postLedger({ memo: `Received stock — ${name}`, ref: "INV", lines: [{ acct: "Inventory", dr: val }, { acct: "Accounts Payable", cr: val }] });
+              } else if (delta < 0 && /shrink|loss|damage|waste/i.test(reason)) {
+                await postLedger({ memo: `Inventory shrinkage — ${name}`, ref: "INV", lines: [{ acct: "Inventory Shrinkage", dr: val }, { acct: "Inventory", cr: val }] });
+              }
+            }
+          } catch (e) { console.error("inventory adjust ledger failed", e && e.message); }
+          return res.json({ ok: true, qty: newQty });
+        }
+
+        case "spaInventoryDelete": {
+          if (!requireRole(actor, "manager", res)) return;
+          if (!b.id) return res.status(400).json({ error: "Missing product id." });
+          // Soft-retire so historical sales keep their product reference.
+          await db.collection(SPA_INVENTORY).doc(b.id).set({ active: false, updatedAt: now() }, { merge: true });
+          return res.json({ ok: true });
+        }
+
+        /* ---------------- Mobile-grooming route optimization ---------------- */
+        case "spaRouteConfig":
+          return res.json({ ok: true, config: await loadRouteConfig() });
+
+        case "spaRouteConfigSave": {
+          if (!requireRole(actor, "manager", res)) return;
+          const cfg = await loadRouteConfig();
+          let baseLat = cfg.baseLat;
+          let baseLng = cfg.baseLng;
+          let baseLabel = String(b.baseLabel || cfg.baseLabel).slice(0, 160);
+          if (Number.isFinite(Number(b.baseLat)) && Number.isFinite(Number(b.baseLng))) {
+            baseLat = Number(b.baseLat); baseLng = Number(b.baseLng);
+          } else if (b.baseAddress) {
+            const g = await geocodeAddress(b.baseAddress);
+            if (!g) return res.status(400).json({ error: "Couldn't locate that base address — enter lat/lng manually." });
+            baseLat = g.lat; baseLng = g.lng; baseLabel = String(b.baseAddress).slice(0, 160);
+          }
+          const out = { baseLat, baseLng, baseLabel, roundTrip: b.roundTrip !== false, autoGeocode: b.autoGeocode !== false, updatedAt: now() };
+          await db.collection("pp_config").doc("spaRoute").set(out, { merge: true });
+          return res.json({ ok: true, config: await loadRouteConfig() });
+        }
+
+        case "spaRouteOptimize": {
+          // Build the optimal visit order for a set of stops. Stops can arrive
+          // as an explicit list, or we pull the day's scheduled appointments.
+          const cfg = await loadRouteConfig();
+          const base = { lat: Number(cfg.baseLat), lng: Number(cfg.baseLng) };
+          let raw = [];
+          if (Array.isArray(b.stops) && b.stops.length) {
+            raw = b.stops.slice(0, 40).map((s) => ({
+              label: String(s.label || "").slice(0, 80),
+              address: String(s.address || "").slice(0, 160),
+              lat: Number(s.lat), lng: Number(s.lng), code: String(s.code || "").slice(0, 12),
+            }));
+          } else {
+            const date = isIsoDate(b.date) ? b.date : todayET();
+            const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(500).get();
+            raw = snap.docs.map((d) => Object.assign({ id: d.id }, d.data()))
+              .filter((t) => t.apptDate === date && !t.cancelled && !t.voided)
+              .map((t) => ({
+                label: (t.pet && t.pet.name) || "Client", code: t.code || "",
+                address: (t.owner && t.owner.address) || t.address || "",
+                lat: Number(t.lat != null ? t.lat : (t.owner && t.owner.lat)),
+                lng: Number(t.lng != null ? t.lng : (t.owner && t.owner.lng)),
+                apptTime: t.apptTime || "",
+              }));
+          }
+          // Geocode any stop missing coordinates (cached, rate-limited).
+          const unresolved = [];
+          if (cfg.autoGeocode) {
+            for (const s of raw) {
+              if ((!Number.isFinite(s.lat) || !Number.isFinite(s.lng)) && s.address) {
+                const g = await geocodeAddress(s.address);
+                if (g) { s.lat = g.lat; s.lng = g.lng; if (!g.cached) await new Promise((r) => setTimeout(r, 1100)); }
+              }
+              if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng)) unresolved.push(s.label || s.address || "stop");
+            }
+          } else {
+            raw.forEach((s) => { if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng)) unresolved.push(s.label || s.address || "stop"); });
+          }
+          const routable = raw.filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+          const result = optimizeRoute(base, routable, cfg.roundTrip !== false);
+          const AVG_MPH = 28; // suburban/rural average incl. stops
+          const driveMinutes = Math.round((result.miles / AVG_MPH) * 60);
+          return res.json({
+            ok: true, base: { lat: base.lat, lng: base.lng, label: cfg.baseLabel },
+            roundTrip: cfg.roundTrip !== false, order: result.order, miles: result.miles,
+            driveMinutes, legs: result.legs, unresolved,
+          });
+        }
+
         case "spaUpcoming": {
           // Scheduled appointments from today forward, soonest first.
           const today = todayET();
@@ -2507,7 +2800,13 @@ exports.pinkPoodleSpa = onRequest(
           const doc = await ref.get();
           if (!doc.exists) return res.status(404).json({ error: "Ticket not found." });
           const t = doc.data();
-          const items = (Array.isArray(b.items) ? b.items : []).map((it) => ({ label: String(it.label || "").slice(0, 60), amount: Math.max(0, Number(it.amount) || 0) })).slice(0, 40);
+          // Retail line items carry an invId (+ optional qty) so we can decrement
+          // stock and recognize COGS; service lines have no invId.
+          const items = (Array.isArray(b.items) ? b.items : []).map((it) => {
+            const o = { label: String(it.label || "").slice(0, 60), amount: Math.max(0, Number(it.amount) || 0) };
+            if (it.invId) { o.invId = String(it.invId).slice(0, 40); o.qty = Math.max(1, Math.floor(Number(it.qty) || 1)); }
+            return o;
+          }).slice(0, 40);
           const discount = Math.max(0, Number(b.discount) || 0);
           const tip = Math.max(0, Number(b.tip) || 0);
           const payMethod = String(b.payMethod || "Cash").slice(0, 30);
@@ -2515,6 +2814,12 @@ exports.pinkPoodleSpa = onRequest(
           const subtotal = Math.max(0, Math.round((gross - discount) * 100) / 100);
           const total = Math.round((subtotal + tip) * 100) / 100;
           const assetAcct = /card|credit|square/i.test(payMethod) ? "Card / Bank" : /venmo|cash ?app|paypal|zelle/i.test(payMethod) ? payMethod : "Cash";
+          // Split revenue between grooming services and retail products so the
+          // books (and reports) show each stream. Discount is allocated
+          // proportionally to gross so the two credits still sum to subtotal.
+          const retailGross = items.filter((it) => it.invId).reduce((s, it) => s + it.amount, 0);
+          const retailRev = gross > 0 ? Math.round(subtotal * (retailGross / gross) * 100) / 100 : 0;
+          const groomRev = Math.round((subtotal - retailRev) * 100) / 100;
           // If a deposit was already collected (Square) and not yet applied,
           // credit it toward this checkout: the customer only owes the balance,
           // and the "Customer Deposits" liability is cleared out. Keeps the
@@ -2522,15 +2827,44 @@ exports.pinkPoodleSpa = onRequest(
           const dep = t.deposit || {};
           const depApplied = (dep.status === "paid" && !dep.applied) ? Math.min(Number(dep.amount) || 0, total) : 0;
           const dueNow = Math.round((total - depApplied) * 100) / 100;
-          const lines = [{ acct: "Grooming Revenue", cr: subtotal }];
+          const lines = [];
+          if (groomRev > 0) lines.push({ acct: "Grooming Revenue", cr: groomRev });
+          if (retailRev > 0) lines.push({ acct: "Retail Revenue", cr: retailRev });
           if (tip > 0) lines.push({ acct: "Tips", cr: tip });
           if (dueNow > 0) lines.push({ acct: assetAcct, dr: dueNow });
           if (depApplied > 0) lines.push({ acct: "Customer Deposits", dr: depApplied });
           const ledgerId = total > 0 ? await postLedger({ memo: `${(t.pet && t.pet.name) || "Client"} — ${payMethod}${depApplied ? " (deposit applied)" : ""}`, ref: t.code, lines }) : null;
-          const patch = { paid: true, payMethod, items, discount, tip, finalTotal: total, depositApplied: depApplied, ledgerId, paidAt: now(), step: Math.max(t.step || 0, 6) };
+          // Decrement stock and recognize COGS for any retail products sold.
+          // COGS is based on units actually taken from stock (never more than
+          // on hand) and accumulated outside the transaction so a Firestore
+          // retry can't double-count it.
+          let cogs = 0;
+          const retailItems = items.filter((it) => it.invId);
+          for (const it of retailItems) {
+            try {
+              const invRef = db.collection(SPA_INVENTORY).doc(it.invId);
+              const committed = await db.runTransaction(async (tx) => {
+                const d = await tx.get(invRef);
+                if (!d.exists) return { unit: 0, taken: 0 };
+                const p = d.data() || {};
+                const unit = Number(p.cost) || 0;
+                const avail = Number(p.qty) || 0;
+                const taken = Math.min(it.qty, Math.max(0, avail));
+                if (taken > 0) tx.set(invRef, { qty: avail - taken, updatedAt: now() }, { merge: true });
+                return { unit, taken };
+              });
+              cogs += committed.unit * committed.taken;
+            } catch (e) { console.error("inventory decrement failed", e && e.message); }
+          }
+          cogs = Math.round(cogs * 100) / 100;
+          let cogsLedgerId = null;
+          if (cogs > 0) {
+            cogsLedgerId = await postLedger({ memo: `${(t.pet && t.pet.name) || "Client"} — retail COGS`, ref: t.code, lines: [{ acct: "Cost of Goods Sold", dr: cogs }, { acct: "Inventory", cr: cogs }] }).catch(() => null);
+          }
+          const patch = { paid: true, payMethod, items, discount, tip, finalTotal: total, retailRevenue: retailRev, cogs, cogsLedgerId, depositApplied: depApplied, ledgerId, paidAt: now(), step: Math.max(t.step || 0, 6) };
           if (depApplied > 0) patch.deposit = Object.assign({}, dep, { applied: true });
           await ref.set(patch, { merge: true });
-          return res.json({ ok: true, total, dueNow, depositApplied: depApplied });
+          return res.json({ ok: true, total, dueNow, depositApplied: depApplied, retailRevenue: retailRev, cogs });
         }
 
         case "spaCancel": {
@@ -2563,7 +2897,21 @@ exports.pinkPoodleSpa = onRequest(
           const reversals = [];
           if (t.ledgerId) { const id = await reverseLedger(t.ledgerId, `Void — ${(t.pet && t.pet.name) || "Client"} (${t.code || ""})`); if (id) reversals.push(id); }
           if (t.cancelLedgerId) { const id = await reverseLedger(t.cancelLedgerId, `Void fee — ${(t.pet && t.pet.name) || "Client"} (${t.code || ""})`); if (id) reversals.push(id); }
+          if (t.cogsLedgerId) { const id = await reverseLedger(t.cogsLedgerId, `Void COGS — ${(t.pet && t.pet.name) || "Client"} (${t.code || ""})`); if (id) reversals.push(id); }
           if (t.deposit && t.deposit.ledgerId) { const id = await reverseLedger(t.deposit.ledgerId, `Void deposit — ${(t.pet && t.pet.name) || "Client"} (${t.code || ""})`); if (id) reversals.push(id); }
+          // Put any retail stock that was sold back on the shelf.
+          for (const it of (t.items || [])) {
+            if (it && it.invId) {
+              try {
+                const invRef = db.collection(SPA_INVENTORY).doc(it.invId);
+                await db.runTransaction(async (tx) => {
+                  const d = await tx.get(invRef);
+                  if (!d.exists) return;
+                  tx.set(invRef, { qty: (Number(d.data().qty) || 0) + (Number(it.qty) || 1), updatedAt: now() }, { merge: true });
+                });
+              } catch (e) { console.error("void restock failed", e && e.message); }
+            }
+          }
           await ref.set({ voided: true, voidReason: reason, voidReversals: reversals, voidedAt: now() }, { merge: true });
           return res.json({ ok: true, reversals: reversals.length });
         }
@@ -2625,8 +2973,8 @@ exports.pinkPoodleSpa = onRequest(
           else if (range === "week") since = addDaysIso(today, -6);
           else if (range === "month") since = addDaysIso(today, -29);
           const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(4000).get();
-          const rep = { range, since, revenue: 0, tips: 0, deposits: 0, visits: 0, avgTicket: 0, cancels: 0, noShows: 0, noShowFees: 0, booked: 0, byService: {}, byDay: {}, newClients: 0, returningVisits: 0 };
-          const svc = {}; const day = {}; const seenPhone = {};
+          const rep = { range, since, revenue: 0, retailRevenue: 0, cogs: 0, grossProfit: 0, tips: 0, deposits: 0, visits: 0, avgTicket: 0, cancels: 0, noShows: 0, noShowFees: 0, booked: 0, byService: {}, byDay: {}, byProduct: {}, unitsSold: 0, newClients: 0, returningVisits: 0 };
+          const svc = {}; const day = {}; const seenPhone = {}; const prod = {};
           snap.docs.forEach((d) => {
             const x = d.data() || {};
             if (x.voided) return;
@@ -2639,9 +2987,12 @@ exports.pinkPoodleSpa = onRequest(
             if (paid) {
               rep.visits++;
               rep.revenue += ft;
+              rep.retailRevenue += Number(x.retailRevenue) || 0;
+              rep.cogs += Number(x.cogs) || 0;
               rep.tips += Number(x.tip) || 0;
               day[dt] = (day[dt] || 0) + ft;
               (x.services || []).forEach((s) => { svc[s] = (svc[s] || 0) + 1; });
+              (x.items || []).forEach((it) => { if (it && it.invId) { const n = it.label || "Product"; const q = Number(it.qty) || 1; prod[n] = (prod[n] || 0) + q; rep.unitsSold += q; } });
               const ph = (x.owner && x.owner.phone) || "";
               if (ph) { if (seenPhone[ph]) rep.returningVisits++; else seenPhone[ph] = true; }
             }
@@ -2649,11 +3000,15 @@ exports.pinkPoodleSpa = onRequest(
           });
           rep.newClients = Object.keys(seenPhone).length;
           rep.revenue = Math.round(rep.revenue * 100) / 100;
+          rep.retailRevenue = Math.round(rep.retailRevenue * 100) / 100;
+          rep.cogs = Math.round(rep.cogs * 100) / 100;
+          rep.grossProfit = Math.round((rep.revenue - rep.cogs) * 100) / 100;
           rep.tips = Math.round(rep.tips * 100) / 100;
           rep.deposits = Math.round(rep.deposits * 100) / 100;
           rep.noShowFees = Math.round(rep.noShowFees * 100) / 100;
           rep.avgTicket = rep.visits ? Math.round((rep.revenue / rep.visits) * 100) / 100 : 0;
           rep.noShowRate = rep.booked ? Math.round((rep.noShows / rep.booked) * 1000) / 10 : 0;
+          rep.byProduct = Object.keys(prod).map((k) => ({ product: k, units: prod[k] })).sort((a, c) => c.units - a.units).slice(0, 12);
           rep.byService = Object.keys(svc).map((k) => ({ service: k, count: svc[k] })).sort((a, c) => c.count - a.count).slice(0, 12);
           rep.byDay = Object.keys(day).sort().map((k) => ({ day: k, revenue: Math.round(day[k] * 100) / 100 }));
           return res.json({ ok: true, report: rep });

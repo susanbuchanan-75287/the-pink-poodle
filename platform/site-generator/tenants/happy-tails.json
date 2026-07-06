@@ -1,0 +1,32 @@
+{
+  "slug": "happy-tails",
+  "business": "Happy Tails Grooming",
+  "tagline": "Small-town grooming with big-time love",
+  "owner": "Dana Whitfield",
+  "town": "Beckley, WV",
+  "phone": "304-555-0148",
+  "sms": "3045550148",
+  "email": "hello@happytailswv.com",
+  "address": "212 Neville St, Beckley, WV 25801",
+  "hours": "Tue–Sat, 8am–5pm",
+  "brand": {
+    "primary": "#2f8f83",
+    "accent": "#f2a541",
+    "ink": "#20302e",
+    "cream": "#fbf7ef"
+  },
+  "emoji": "🐾",
+  "about": "Happy Tails is a solo grooming studio run by Dana Whitfield, a certified groomer with 12 years behind the table. Every pup gets one-on-one, low-stress attention — no cages, no rushing, no assembly line. Just calm, careful grooming and a whole lot of belly rubs.",
+  "services": [
+    { "name": "Full Groom", "price": 65, "desc": "Bath, full haircut to breed or your preferred style, nails, ears, and a bandana or bow." },
+    { "name": "Bath & Tidy", "price": 40, "desc": "Warm bath, blow-dry, brush-out, nail trim, ear clean, and a light tidy of face and feet." },
+    { "name": "De-shed Treatment", "price": 55, "desc": "Deep bath with de-shedding conditioner and undercoat blow-out — cuts shedding up to 80%." },
+    { "name": "Nail Trim & Grind", "price": 15, "desc": "Quick, gentle nail trim with a smooth grind finish. Walk-ins welcome when the schedule allows." },
+    { "name": "Puppy's First Groom", "price": 45, "desc": "A gentle, positive intro to grooming for pups under 6 months — short, sweet, and full of treats." }
+  ],
+  "reviews": [
+    { "text": "Dana is the only person my anxious rescue will let near her. Miracle worker.", "who": "— Priya S." },
+    { "text": "Best cut Biscuit has ever had, and half the price of the chain place. Booking here forever.", "who": "— Marcus T." }
+  ],
+  "bookingEndpoint": ""
+}

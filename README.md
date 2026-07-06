@@ -99,6 +99,27 @@ Benchmarking against the big platforms flagged two convenience gaps worth closin
 **New backend actions:** `spaRescheduleByCode`, `spaWaitlistJoin` (public), `spaWaitlist`, `spaWaitlistNotify`, `spaWaitlistRemove` (staff). **New collection:** `pp_spa_waitlist` (`status` waiting/notified/booked/removed, `createdAt`, name/phone/prefDates/petName). Public no-PIN actions are gated by knowing the REF code + rate-limit + honeypot, consistent with the existing `spaCancelByCode`/`spaConfirmByCode` trust model. Validated via a board round (round 7): hardened date/time validators (round-trip + range checks), made reschedule atomic, and fixed a waitlist filter-after-limit edge case — no blocking issues.
 
 
+## Retail / inventory, route optimization & the multi-groomer platform 🛍️🚐🏢
+Closing the last competitive gaps benchmarked against the big platforms, plus an R&D experiment toward a multi-tenant product.
+
+### Retail & inventory (`🛍️ Retail` staff tab)
+- **Product catalog** in `pp_spa_inventory` — name, SKU, category, sale price, unit cost, qty on hand, low-stock threshold, active flag. Managers add/edit/retire products and adjust stock (receive / shrinkage / correction).
+- **Sell at checkout** — the checkout modal gains a **🛍️ Add product** picker; selecting a product adds a retail line (with `invId`/`qty`) that **decrements stock** on payment.
+- **Correct double-entry books** — checkout now splits revenue into **Grooming Revenue** + **Retail Revenue** (discount allocated proportionally) and posts a separate **COGS** entry (Dr Cost of Goods Sold / Cr Inventory) on units *actually* taken from stock. Receiving stock books Inventory / Accounts Payable; shrinkage books an expense; opening stock books Inventory / Owner Equity. **Void** reverses the COGS entry *and* restocks the items.
+- **Reports** gain Retail sales, COGS, Gross profit, units sold, and a Top-products list (CSV too).
+- **New actions:** `spaInventoryList`, `spaInventorySave`/`spaInventoryAdjust`/`spaInventoryDelete` (manager+).
+
+### Mobile-grooming route optimizer (`🚐 Route` staff tab)
+- For mobile groomers: enter the day's stops (or **pull the day's schedule**) and get the **shortest driving order**. Self-contained solver — no paid routing API: nearest-neighbor seed + **2-opt** on great-circle (haversine) distances, verified against a brute-force optimum.
+- Configurable **home base** (address or lat/lng) and round-trip toggle. Addresses without coordinates are geocoded via **OpenStreetMap Nominatim** (free, cached in `pp_spa_geocache`, rate-limited to ≤1 req/s per policy) and degrade gracefully to manual lat/lng. Results show ordered stops, total miles, an ETA, and a one-tap **Google Maps** multi-stop link.
+- **New actions:** `spaRouteConfig`/`spaRouteConfigSave` (manager+), `spaRouteOptimize`.
+
+### Multi-groomer platform experiment (`platform/`)
+Kept **separate** from the live single-salon app so it can't affect thepinkpoodle.dog. Explores the "$40/mo, each groomer gets their own website" idea:
+- **`platform/site-generator/`** — a zero-dependency Node generator that turns one tenant JSON (`tenants/*.json`) into a polished, responsive, SEO-ready **4-page site** (Home, Services, About, working Book form). Run `node generate.js --all`; output in `sites/<slug>/` (git-ignored, reproducible). Bundled **Happy Tails Grooming** sample tenant demonstrates a completely different brand from the shared template.
+- **`platform/platform-brief.html`** — the board brief: two architecture paths (site-only vs true multi-tenant SaaS), $40 unit economics, Stripe subscription billing, provisioning, per-tenant domains, the legal reality (money-transmitter, 10DLC, multi-state tax), competitive positioning, and a phased pilot recommendation.
+
+## Retention & operations level-up 🚀 (Bundle B)
 Benchmarked against the top US grooming platforms (MoeGo, Gingr, Pawfinity, Groomer.io, DaySmart), the spa app now matches or beats the paid tools on the retention/automation layer — all built into the existing `pinkPoodleSpa` function, no new SaaS subscription. Everything is fully implemented and live:
 
 - **Automated appointment reminders + client confirm** — a scheduled function `pinkPoodleSpaCron` (hourly, `America/New_York`) texts/emails each client the day before their appointment (once, between 9–11am ET) with a one-tap confirm link `https://thepinkpoodle.dog/spa.html?confirm=REF`. The spa app handles the `?confirm=` deep-link, calls `spaConfirmByCode`, and shows the live status. Staff also see confirmed/unconfirmed badges and can confirm manually.

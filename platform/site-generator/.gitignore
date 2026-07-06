@@ -1,0 +1,3 @@
+# Generated tenant sites are reproducible build artifacts — rebuild with:
+#   node generate.js --all
+sites/

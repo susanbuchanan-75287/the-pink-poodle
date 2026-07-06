@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Board Brief — Scaling to a Multi-Groomer Platform ($40/mo)</title>
+<style>
+  :root{--pink:#d6337f;--pink-deep:#a81f60;--gold:#e9a23b;--ink:#241820;--cream:#fdf6fa;--good:#1f8a5b;--warn:#c1720b;--bad:#b3261e;--line:rgba(0,0,0,.08)}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--cream);line-height:1.6}
+  header{background:linear-gradient(135deg,var(--pink),var(--gold));color:#fff;padding:2.6rem 1.5rem}
+  .wrap{max-width:960px;margin:0 auto;padding:0 1.25rem}
+  header .wrap{padding:0}
+  h1{margin:.2rem 0;font-size:2.1rem}
+  h2{margin-top:2.2rem;border-bottom:2px solid var(--pink);padding-bottom:.3rem}
+  h3{margin-top:1.6rem;color:var(--pink-deep)}
+  .eyebrow{text-transform:uppercase;letter-spacing:.12em;font-size:.8rem;opacity:.9;margin:0}
+  .lead{font-size:1.12rem}
+  .tag{display:inline-block;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.5);border-radius:999px;padding:.2rem .7rem;font-size:.8rem;margin-top:.6rem}
+  main{padding:1rem 0 3rem}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:1.2rem 1.4rem;margin:1rem 0;box-shadow:0 6px 24px rgba(0,0,0,.04)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.95rem}
+  th,td{text-align:left;padding:.55rem .6rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#fbe6ef}
+  .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;border-radius:999px;padding:.1rem .6rem;font-size:.78rem;font-weight:700}
+  .p-good{background:#e3f5eb;color:var(--good)}.p-warn{background:#fdefd8;color:var(--warn)}.p-bad{background:#fbe4e2;color:var(--bad)}
+  .muted{color:#6b6b6b}
+  ul{margin:.4rem 0 .8rem}
+  li{margin:.25rem 0}
+  .verdict{border-left:5px solid var(--pink);padding:.4rem 0 .4rem 1rem;margin:.8rem 0;background:#fff}
+  code{background:#fbe6ef;padding:1px 6px;border-radius:5px;font-size:.9em}
+  .foot{font-size:.85rem;color:#6b6b6b;border-top:1px solid var(--line);margin-top:2rem;padding-top:1rem}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}h1{font-size:1.6rem}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <p class="eyebrow">The Pink Poodle · Board Brief</p>
+    <h1>Scaling to a multi-groomer platform</h1>
+    <p class="lead">Should each groomer get their own 4-page website for <strong>$40/month</strong>? Architecture, unit economics, billing, and the legal reality — plus a working generator we built to prove the core.</p>
+    <span class="tag">Prepared for Susan Buchanan · Owner</span>
+    <span class="tag">Status: strategy + MVP</span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="card">
+    <strong>TL;DR.</strong> The <em>website</em> half of this product is easy and cheap — we built a working generator that spins up a themed 4-page site from a JSON file (see the <code>platform/</code> folder and the <a href="site-generator/sites/happy-tails/index.html">Happy Tails demo</a>). The <em>hard, expensive, risky</em> half is everything behind it: subscription billing, a tenant-isolated backend, SMS at scale, per-state money/tax law, and support. At $40/mo the margin is real but thin once texting and support are honest. <strong>Recommendation: launch a small, deliberately-scoped pilot (5–10 local groomers), price at $49–$59/mo, and treat payments/SMS as the gating risks — not the website.</strong>
+  </div>
+
+  <h2>1. What the customer actually gets for $40</h2>
+  <p>The pitch: a groomer signs up, and within minutes has a polished website + online booking, without touching code. Concretely, a tenant bundle would include:</p>
+  <div class="grid">
+    <div class="card">
+      <h3 style="margin-top:0">Included (the promise)</h3>
+      <ul>
+        <li>Branded <strong>4-page site</strong> — Home, Services, About, Book (built & demoed today)</li>
+        <li><strong>Online booking</strong> form → their phone/inbox</li>
+        <li>Their <strong>own subdomain</strong> (<code>name.groovepets.app</code>) + optional custom domain</li>
+        <li><strong>SMS/email confirmations</strong> &amp; reminders</li>
+        <li>Mobile <strong>staff console</strong> (the spa app: board, checkout, clients)</li>
+        <li>Retail/inventory + reports + reschedule/waitlist (all built this month)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">The catch (what it really costs us)</h3>
+      <ul>
+        <li>Every SMS costs money and needs <strong>10DLC registration</strong> per brand</li>
+        <li>Taking their clients' card payments drags in <strong>money-transmitter</strong> law</li>
+        <li>Multi-state = <strong>sales-tax nexus</strong> + privacy-law patchwork</li>
+        <li><strong>Support</strong> for non-technical owners is the real cost, not servers</li>
+        <li>Uptime/DR obligations rise once other people's revenue depends on us</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>2. Architecture — two paths</h2>
+  <table>
+    <tr><th>Approach</th><th>How</th><th>Pros</th><th>Cons</th><th>Fit</th></tr>
+    <tr>
+      <td><strong>A. Site-only, bring-your-own-ops</strong></td>
+      <td>Generate the 4-page site per tenant (done). Booking goes to their phone/email. No shared backend, no payments.</td>
+      <td>Cheap, near-zero liability, ship this week. Almost pure margin at $40.</td>
+      <td>Not "software" — it's a site + form. Easy for competitors/Wix to match.</td>
+      <td><span class="pill p-good">Pilot now</span></td>
+    </tr>
+    <tr>
+      <td><strong>B. True multi-tenant SaaS</strong></td>
+      <td>One shared backend; every record keyed by <code>tenantId</code>; subscription billing; provisioning; per-tenant SMS brands &amp; payments.</td>
+      <td>Real product, real moat, real retention. This is what MoeGo/Gingr are.</td>
+      <td>Months of work; ongoing compliance, support, and on-call. $40 may not cover it.</td>
+      <td><span class="pill p-warn">Phase 2</span></td>
+    </tr>
+  </table>
+  <p class="muted">The current app is <em>single-tenant</em> (collections like <code>pp_spa_tickets</code> assume one salon). Path B requires refactoring every collection and query to be tenant-scoped, plus a hard isolation boundary — the #1 security requirement from the earlier scaling brief.</p>
+
+  <h3>What we built today (proves Path A + the site half of Path B)</h3>
+  <div class="card">
+    <p>A zero-dependency Node <strong>site generator</strong> (<code>platform/site-generator/generate.js</code>): one tenant JSON → a themed, responsive, SEO-ready 4-page site with a working booking form (POSTs to a configurable endpoint, falls back to SMS/mailto), honeypot spam guard, and <code>schema.org</code> structured data. The bundled <strong>Happy Tails Grooming</strong> tenant demonstrates a completely different brand from the same template.</p>
+    <p class="muted">Run: <code>node generate.js --all</code> → output in <code>site-generator/sites/&lt;slug&gt;/</code>. Deterministic and disposable.</p>
+  </div>
+
+  <h2>3. Unit economics — is $40/mo actually profitable?</h2>
+  <p>Monthly cost per active tenant, modeled conservatively for a small salon (~120 appointments/mo, 2 texts each):</p>
+  <table>
+    <tr><th>Line</th><th class="num">Path A (site only)</th><th class="num">Path B (full SaaS)</th><th>Notes</th></tr>
+    <tr><td>Hosting / functions / DB</td><td class="num">~$0.50</td><td class="num">~$2–4</td><td>Firebase scales cheaply; reads/writes add up in B</td></tr>
+    <tr><td>SMS (Twilio, ~240 msgs)</td><td class="num">$0</td><td class="num">~$2–4</td><td>+ one-time/monthly 10DLC brand &amp; campaign fees</td></tr>
+    <tr><td>Email (SendGrid)</td><td class="num">~$0</td><td class="num">~$0.50</td><td>Free tier covers low volume</td></tr>
+    <tr><td>Domain/SSL (if custom)</td><td class="num">~$1</td><td class="num">~$1</td><td>Amortized; subdomains are free</td></tr>
+    <tr><td>Payments processing</td><td class="num">$0</td><td class="num">pass-through</td><td>Stripe/Square fees paid by tenant, but chargeback risk is ours if we're the platform</td></tr>
+    <tr><td>Stripe billing fee on the $40</td><td class="num">~$1.46</td><td class="num">~$1.46</td><td>2.9% + $0.30 on the subscription itself</td></tr>
+    <tr><td><strong>Support (the real one)</strong></td><td class="num">~$3–8</td><td class="num">~$8–20</td><td>Even 15 min/mo of a human wipes out margin fast</td></tr>
+    <tr><td><strong>Gross margin at $40</strong></td><td class="num"><span class="pill p-good">~$26–33</span></td><td class="num"><span class="pill p-warn">~$8–24</span></td><td>B's margin is fragile; one support-heavy tenant can be unprofitable</td></tr>
+  </table>
+  <div class="verdict"><strong>Board read:</strong> $40 works comfortably for Path A. For Path B it's <em>tight</em> — the swing factor is support, not infrastructure. Price Path B at <strong>$49–$59/mo</strong>, or keep $40 as a "site + booking" tier and put reminders/payments/inventory in a higher tier.</p></div>
+
+  <h2>4. Subscription billing (Stripe)</h2>
+  <ul>
+    <li><strong>Stripe Billing</strong> with a monthly Price; Checkout for signup, Customer Portal for card updates/cancel (offloads PCI + dunning to Stripe).</li>
+    <li>A <code>stripeCustomerId</code> + <code>subscriptionStatus</code> on each tenant; a <strong>webhook</strong> (<code>customer.subscription.updated/deleted</code>, <code>invoice.payment_failed</code>) flips the tenant <code>active</code> flag.</li>
+    <li>Inactive/past-due tenant → site shows a soft "temporarily unavailable" and staff console is locked, but <strong>data is retained</strong> for a grace period.</li>
+    <li>Note: charging tenants a subscription (Stripe) is unrelated to <em>their</em> clients paying <em>them</em> — the latter is where money-transmitter law bites (§6).</li>
+  </ul>
+
+  <h2>5. Provisioning &amp; domains</h2>
+  <ol>
+    <li>Tenant completes Stripe Checkout → webhook creates the tenant record.</li>
+    <li>Generator runs with their config → site files produced.</li>
+    <li>Deploy to a per-tenant path/subdomain; issue SSL (wildcard cert for <code>*.groovepets.app</code> covers all subdomains automatically).</li>
+    <li>Optional custom domain: tenant points a CNAME; we provision SSL on demand.</li>
+    <li>An admin editor lets the owner tweak copy/colors/services → regenerate.</li>
+  </ol>
+  <p class="muted">For a pilot, steps 2–3 can be semi-manual (you run the generator, drop files, add the DNS record) before automating.</p>
+
+  <h2>6. The legal reality (recap of prior briefs — this is the gating risk)</h2>
+  <div class="grid">
+    <div class="card">
+      <h3 style="margin-top:0">Money movement <span class="pill p-bad">highest risk</span></h3>
+      <p>If clients pay <em>through</em> your platform and you hold/route funds, several states treat that as <strong>money transmission</strong> (licensing, bonds). Avoid by using <strong>Stripe Connect / Square</strong> so funds flow tenant↔processor directly and you never take custody. Your existing <code>paymentCompliance</code> pattern (block restrictive states until cleared) applies here.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">SMS / TCPA / 10DLC <span class="pill p-warn">operational</span></h3>
+      <p>Each tenant sending texts needs a registered <strong>10DLC brand + campaign</strong> and documented opt-in. Reminders are transactional (lower risk); any marketing blast is strictly opt-in. Budget registration time and per-tenant fees.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Multi-state tax <span class="pill p-warn">accounting</span></h3>
+      <p>Selling SaaS across states triggers <strong>economic-nexus sales tax</strong> in many jurisdictions. Use a tax engine (Stripe Tax) from day one. SaaS is taxable in some states, not others.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Privacy &amp; SOC 2 <span class="pill p-good">customer-driven</span></h3>
+      <p>SOC 2 is <em>not</em> legally required — it's a sales asset once you court bigger clients. State privacy laws (CA/CO/etc.) and a clear DPA/privacy policy matter more early. Hard tenant data isolation is the technical must-have.</p>
+    </div>
+  </div>
+
+  <h2>7. Competitive positioning</h2>
+  <table>
+    <tr><th>Player</th><th class="num">Price/mo</th><th>What they are</th></tr>
+    <tr><td>MoeGo / Gingr / Pawfinity</td><td class="num">$50–$200+</td><td>Full grooming SaaS — scheduling, payments, retail, mobile fleets. Deep but expensive &amp; complex.</td></tr>
+    <tr><td>Goldie / Squire-style</td><td class="num">$20–$40</td><td>Booking-first apps; light on websites.</td></tr>
+    <tr><td>Wix / Squarespace + a booking add-on</td><td class="num">$16–$49</td><td>DIY website; groomer does all the work &amp; setup.</td></tr>
+    <tr><td><strong>This platform @ $40–$59</strong></td><td class="num">$40–$59</td><td><strong>Done-for-you</strong> site + booking + the grooming-specific console we already built. Wedge: "you don't build anything, and it already speaks groomer."</td></tr>
+  </table>
+  <div class="verdict"><strong>Board read:</strong> The differentiator isn't price and isn't the website — it's <em>done-for-you + grooming-native</em> for a solo/small shop that finds MoeGo overkill and Wix too much work. That's a real, underserved niche, especially regionally (WV/VA/TN/NC).</p></div>
+
+  <h2>8. Risks &amp; what could sink it</h2>
+  <ul>
+    <li><span class="pill p-bad">High</span> <strong>Support load</strong> — non-technical owners will call. This is the true cost and the margin killer. Cap it with great onboarding, templates, and self-serve editing.</li>
+    <li><span class="pill p-bad">High</span> <strong>Payments/compliance</strong> — never take custody of funds; use Connect/Square; gate restrictive states.</li>
+    <li><span class="pill p-warn">Med</span> <strong>Shared-fate reliability</strong> — an outage now hurts every tenant's bookings. Needs the DR runbook (still outstanding) before Path B.</li>
+    <li><span class="pill p-warn">Med</span> <strong>Churn</strong> — solo groomers come and go; a dead tenant still costs support &amp; a domain.</li>
+    <li><span class="pill p-good">Low</span> <strong>Tech to generate sites</strong> — solved. The easy part.</li>
+  </ul>
+
+  <h2>9. Recommendation &amp; phased roadmap</h2>
+  <div class="card">
+    <p><strong>Phase 0 — now (done):</strong> Site generator + Happy Tails demo prove the core. No spend, no liability.</p>
+    <p><strong>Phase 1 — pilot (weeks):</strong> Hand-onboard <strong>5–10 local groomers</strong> on Path A (site + booking-to-phone). Price <strong>$49/mo</strong>. Manual provisioning. Goal: learn the <em>support</em> reality and whether they'll pay. Add Stripe Billing for the subscription only.</p>
+    <p><strong>Phase 2 — SaaS (months, only if Phase 1 retains):</strong> Refactor the backend to be <code>tenantId</code>-scoped with hard isolation; add Stripe Connect for tenant client-payments; 10DLC per tenant; Stripe Tax; self-serve editor + automated provisioning; DR runbook. Tiered pricing ($40 site / $79 full).</p>
+    <p><strong>Do not</strong> build Phase 2 before Phase 1 proves people pay and quantifies support cost.</p>
+  </div>
+
+  <h2>Board round verdicts</h2>
+  <div class="verdict"><strong>Product:</strong> Real niche (done-for-you, grooming-native, solo/small). Ship a pilot. ✅</div>
+  <div class="verdict"><strong>Finance:</strong> $40 fine for site-only; raise to $49–$59 for full SaaS — support, not servers, sets the floor. ⚠️</div>
+  <div class="verdict"><strong>Legal:</strong> Two hard rules — never custody funds (Connect/Square), and 10DLC + opt-in per tenant. Gate restrictive states as we already do. ⚠️</div>
+  <div class="verdict"><strong>Engineering:</strong> Website generation solved today. Tenant isolation + billing + DR are the Phase-2 lift; don't start until the pilot validates demand. ✅/⚠️</div>
+  <div class="verdict"><strong>Consensus:</strong> Green-light a <strong>5–10 salon pilot at $49/mo on Path A</strong>; revisit full SaaS after 90 days of real support data. 🟢</div>
+
+  <p class="foot">This is a strategy brief, not legal, tax, or accounting advice. Confirm money-transmitter, sales-tax nexus, and TCPA/10DLC specifics with qualified counsel and a CPA before charging tenants or moving client funds. Built alongside the <code>platform/site-generator</code> MVP and the Happy Tails demo tenant.</p>
+
+</main>
+</body>
+</html>
