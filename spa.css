@@ -251,3 +251,17 @@ textarea { min-height: 74px; resize: vertical; }
 .vax--unknown  { background: #eee; color: #666; }
 #clPets { margin: 0.2rem 0 0.4rem; }
 #petVaxStatus { min-height: 1.2rem; }
+
+/* --- level-up: photo gallery + report KPIs --- */
+.petphotos{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:0.4rem}
+.petphotos .ph{position:relative;border-radius:10px;overflow:hidden;background:#f4e7ee;aspect-ratio:1/1}
+.petphotos .ph img{width:100%;height:100%;object-fit:cover;display:block}
+.petphotos .ph__tag{position:absolute;top:2px;left:2px;font-size:0.62rem;padding:1px 5px;border-radius:6px;background:rgba(184,51,114,0.9);color:#fff}
+.petphotos .ph__rm{position:absolute;top:2px;right:2px;border:0;border-radius:6px;background:rgba(0,0,0,0.55);color:#fff;cursor:pointer;font-size:0.7rem;line-height:1;padding:2px 4px}
+.petphotos .ph__cap{position:absolute;bottom:0;left:0;right:0;font-size:0.6rem;padding:2px 4px;background:linear-gradient(transparent,rgba(0,0,0,0.6));color:#fff}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.5rem;margin-bottom:0.7rem}
+.kpi{background:#fff;border-radius:12px;padding:0.7rem 0.8rem;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
+.kpi__num{font-size:1.35rem;font-weight:600;color:#b83372;font-family:'Playfair Display',serif}
+.kpi__lbl{font-size:0.72rem;color:#8a6b7a;text-transform:uppercase;letter-spacing:0.04em}
+.appt-badge{display:inline-block;font-size:0.72rem;padding:1px 7px;border-radius:8px;background:#eaf6ec;color:#2c7a3f;margin-left:0.3rem}
+.appt-badge--pending{background:#fdf1e0;color:#a5701a}

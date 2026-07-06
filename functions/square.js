@@ -229,6 +229,48 @@ function resolveStartAt({ date, time, prefText }) {
   return null;
 }
 
+/**
+ * Create a hosted Square Checkout payment link for a deposit / no-show hold.
+ * PCI stays entirely with Square — we only ever hold a URL. Returns the link
+ * URL, the Square order id (to poll for payment), and the payment-link id.
+ */
+async function createPaymentLink(cfg, { amount, name, note, redirectUrl }) {
+  const cents = Math.round(Math.max(0.5, Number(amount) || 0) * 100);
+  const body = {
+    idempotency_key: crypto.randomUUID(),
+    quick_pay: {
+      name: String(name || "Grooming deposit").slice(0, 255),
+      price_money: { amount: cents, currency: "USD" },
+      location_id: cfg.locationId,
+    },
+    description: String(note || "").slice(0, 255),
+  };
+  if (redirectUrl) body.checkout_options = { redirect_url: String(redirectUrl).slice(0, 800) };
+  const out = await sq(cfg, "/v2/online-checkout/payment-links", { method: "POST", body });
+  const pl = out.payment_link || {};
+  return { url: pl.url || "", orderId: pl.order_id || "", id: pl.id || "" };
+}
+
+/**
+ * Poll a Square order to see whether the deposit link has been paid.
+ * Returns { paid, state, paidAmount } — paid is true once Square marks the
+ * order COMPLETED or the balance due reaches zero on a non-zero order.
+ */
+async function getOrderPaid(cfg, orderId) {
+  if (!orderId) return { paid: false, state: "", paidAmount: 0 };
+  const out = await sq(cfg, "/v2/orders/batch-retrieve", {
+    method: "POST",
+    body: { order_ids: [orderId] },
+  });
+  const order = (out.orders && out.orders[0]) || {};
+  const total = (order.total_money && order.total_money.amount) || 0;
+  const due = order.net_amount_due_money ? order.net_amount_due_money.amount : total;
+  const tenderPaid = (order.tenders || []).reduce((s, t) => s + ((t.amount_money && t.amount_money.amount) || 0), 0);
+  const paid = order.state === "COMPLETED" || (total > 0 && due === 0) || (total > 0 && tenderPaid >= total);
+  const paidCents = tenderPaid || (paid ? total : 0);
+  return { paid, state: order.state || "", paidAmount: Math.round(paidCents) / 100 };
+}
+
 module.exports = {
   DEFAULT_VERSION,
   enabled,
@@ -241,4 +283,6 @@ module.exports = {
   createBooking,
   listBookings,
   resolveStartAt,
+  createPaymentLink,
+  getOrderPaid,
 };

@@ -113,6 +113,8 @@
         <button type="button" class="pill" data-sub="ledger">📒 Ledger</button>
         <button type="button" class="pill" data-sub="clients">📇 Clients</button>
         <button type="button" class="pill" data-sub="vaxdue">💉 Vaccinations</button>
+        <button type="button" class="pill" data-sub="upcoming">📅 Upcoming</button>
+        <button type="button" class="pill" data-sub="reports">📊 Reports</button>
         <button type="button" class="pill" data-sub="fees">⚙️ Fees &amp; PIN</button>
       </div>
 
@@ -166,6 +168,34 @@
         <div id="vaxDueBody"></div>
       </div>
 
+      <!-- Upcoming appointments -->
+      <div class="staff__pane hidden" data-sub="upcoming">
+        <h1>Upcoming appointments 📅</h1>
+        <p class="lead">Scheduled spa days, soonest first. Confirm, rebook, or start check-in.</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.5rem 0">
+          <button class="btn btn--soft btn--sm" id="upcomingCsvBtn" type="button">⬇ CSV</button>
+          <button class="btn btn--soft btn--sm" id="upcomingRefresh" type="button">↻ Refresh</button>
+        </div>
+        <div id="upcomingBody"></div>
+      </div>
+
+      <!-- Reports / KPIs -->
+      <div class="staff__pane hidden" data-sub="reports">
+        <h1>Reports 📊</h1>
+        <p class="lead">Revenue, tips, visits &amp; no-shows at a glance.</p>
+        <div class="board__filter pills" id="reportRange">
+          <button type="button" class="pill" data-range="today">Today</button>
+          <button type="button" class="pill sel" data-range="week">This week</button>
+          <button type="button" class="pill" data-range="month">This month</button>
+          <button type="button" class="pill" data-range="all">All time</button>
+        </div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.5rem 0">
+          <button class="btn btn--soft btn--sm" id="reportCsvBtn" type="button">⬇ CSV</button>
+          <button class="btn btn--soft btn--sm" id="reportRefresh" type="button">↻ Refresh</button>
+        </div>
+        <div id="reportBody"></div>
+      </div>
+
       <!-- Fees & PIN -->
       <div class="staff__pane hidden" data-sub="fees">
         <h1>Fees &amp; PIN ⚙️</h1>
@@ -182,6 +212,25 @@
             <button class="btn btn--soft btn--sm" id="vaxAddCustomBtn" type="button" style="height:44px">＋ Add</button>
           </div>
           <button class="btn btn--primary btn--block" id="vaxSaveBtn" type="button">Save required vaccinations</button>
+        </div>
+        <div class="card" id="depCfgCard" data-min-role="manager" style="margin-top:1rem">
+          <h2 style="margin-top:0">💳 Booking deposits</h2>
+          <p class="muted" style="margin-top:-0.2rem">Collect a card deposit to hold a spot (no-show protection). Requires Square connected in the Salon Console.</p>
+          <label class="check"><input type="checkbox" id="depCfgEnabled" /> <span>Offer deposits at booking</span></label>
+          <div class="field" style="margin-top:0.4rem"><label>Default deposit ($)</label><input type="number" id="depCfgAmount" min="0" step="1" value="30" inputmode="decimal" /></div>
+          <button class="btn btn--primary btn--block" id="depCfgSaveBtn" type="button">Save deposit settings</button>
+        </div>
+        <div class="card" id="revCfgCard" data-min-role="manager" style="margin-top:1rem">
+          <h2 style="margin-top:0">⭐ Review booster</h2>
+          <p class="muted" style="margin-top:-0.2rem">After pickup, automatically text/email happy clients a link to leave a review.</p>
+          <label class="check"><input type="checkbox" id="revCfgEnabled" /> <span>Send a review request after pickup</span></label>
+          <div class="row2" style="margin-top:0.4rem">
+            <div class="field"><label>Hours after pickup</label><input type="number" id="revCfgDelay" min="1" max="72" step="1" value="3" inputmode="numeric" /></div>
+            <div class="field"><label>Google review URL</label><input type="url" id="revCfgGoogle" placeholder="https://g.page/r/…/review" /></div>
+          </div>
+          <div class="field"><label>Facebook page URL</label><input type="url" id="revCfgFacebook" placeholder="https://facebook.com/…" /></div>
+          <div class="field"><label>Message</label><textarea id="revCfgMsg" placeholder="Thanks for visiting The Pink Poodle! We'd love a quick review 🩷"></textarea></div>
+          <button class="btn btn--primary btn--block" id="revCfgSaveBtn" type="button">Save review settings</button>
         </div>
         <div class="card" id="pinCard" data-min-role="owner" style="margin-top:1rem">
           <h2 style="margin-top:0">Change staff PIN</h2>
@@ -325,10 +374,94 @@
         <datalist id="knownVaxList"></datalist>
         <div id="petVaxStatus" style="margin:0.2rem 0 0.4rem"></div>
       </div>
+      <div class="card" style="background:#fff8ee">
+        <h2 style="font-size:0.95rem;margin:0 0 0.4rem">✂️ Groom cut sheet</h2>
+        <div class="field"><label>Style / pattern</label><input type="text" id="petGroomStyle" placeholder="e.g. Teddy bear, breed cut, kennel" /></div>
+        <div class="row2">
+          <div class="field"><label>Body</label><input type="text" id="petGroomBody" placeholder="#4 / 1 in" /></div>
+          <div class="field"><label>Legs</label><input type="text" id="petGroomLegs" placeholder="Scissored / #2" /></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Face</label><input type="text" id="petGroomFace" placeholder="Round / teddy" /></div>
+          <div class="field"><label>Ears</label><input type="text" id="petGroomEars" placeholder="Natural / rounded" /></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Tail</label><input type="text" id="petGroomTail" placeholder="Plume / pom" /></div>
+          <div class="field"><label>Feet</label><input type="text" id="petGroomFeet" placeholder="Clean / natural" /></div>
+        </div>
+        <div class="field"><label>Finish</label><input type="text" id="petGroomFinish" placeholder="Cologne + bandana" /></div>
+        <div class="field"><label>Cut notes</label><textarea id="petGroomNotes" placeholder="Owner likes short but leave ears long…"></textarea></div>
+      </div>
+      <div class="card" id="petPhotosCard" style="background:#fff">
+        <h2 style="font-size:0.95rem;margin:0 0 0.4rem">📸 Before &amp; after photos</h2>
+        <div id="petPhotosMsg" class="muted" style="margin-bottom:0.4rem"></div>
+        <div id="petPhotos" class="petphotos"></div>
+        <div class="row2" style="align-items:end;margin-top:0.5rem">
+          <div class="field"><label>Tag</label><select id="petPhotoTag"><option value="before">Before</option><option value="after">After</option><option value="other">Other</option></select></div>
+          <div class="field"><label>Caption <span class="muted">(optional)</span></label><input type="text" id="petPhotoCaption" placeholder="Matted coat, all done…" /></div>
+        </div>
+        <div class="row2" style="align-items:end">
+          <div class="field"><label>Photo</label><input type="file" id="petPhotoFile" accept="image/jpeg,image/png,image/webp" /></div>
+          <button class="btn btn--primary btn--sm" id="petPhotoUploadBtn" type="button" style="height:44px">⬆ Upload</button>
+        </div>
+      </div>
       <div style="display:flex;gap:0.5rem;margin-top:0.9rem">
         <button class="btn btn--soft" id="petDelete" type="button" style="display:none">Delete</button>
         <button class="btn btn--soft" id="petCancel" type="button">Cancel</button>
         <button class="btn btn--primary btn--block" id="petSave" type="button">Save pet</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Schedule appointment modal -->
+  <div class="modal" id="scheduleModal">
+    <div class="modal__box">
+      <h2 id="scheduleTitle">Schedule appointment</h2>
+      <div class="row2">
+        <div class="field"><label>Date</label><input type="date" id="schDate" /></div>
+        <div class="field"><label>Time <span class="muted">(optional)</span></label><input type="time" id="schTime" /></div>
+      </div>
+      <p class="muted">Setting or changing the date clears any prior confirmation, and the client can re-confirm.</p>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
+        <button class="btn btn--soft" id="schCancel" type="button">Cancel</button>
+        <button class="btn btn--primary btn--block" id="schSave" type="button">Save date</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deposit modal -->
+  <div class="modal" id="depositModal">
+    <div class="modal__box">
+      <h2 id="depositTitle">Request deposit</h2>
+      <div id="depStatus" class="muted" style="margin-bottom:0.4rem"></div>
+      <div class="field"><label>Amount ($)</label><input type="number" id="depAmount" min="1" step="1" value="30" inputmode="decimal" /></div>
+      <p class="muted">Creates a Square payment link and texts/emails it to the client. Once paid, it credits automatically at checkout.</p>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem;flex-wrap:wrap">
+        <button class="btn btn--soft" id="depCancel" type="button">Close</button>
+        <button class="btn btn--soft btn--sm" id="depCheck" type="button">↻ Check status</button>
+        <button class="btn btn--primary btn--block" id="depSend" type="button">Send deposit link</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rebook modal -->
+  <div class="modal" id="rebookModal">
+    <div class="modal__box">
+      <h2 id="rebookTitle">Rebook standing appointment</h2>
+      <div class="field"><label>Repeat every…</label>
+        <select id="rebookWeeks">
+          <option value="2">2 weeks</option>
+          <option value="3">3 weeks</option>
+          <option value="4" selected>4 weeks</option>
+          <option value="6">6 weeks</option>
+          <option value="8">8 weeks</option>
+          <option value="12">12 weeks</option>
+        </select>
+      </div>
+      <p class="muted">Clones this ticket forward and remembers the cadence on the client so it's suggested next time.</p>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
+        <button class="btn btn--soft" id="rbCancel" type="button">Cancel</button>
+        <button class="btn btn--primary btn--block" id="rbSave" type="button">Create next appointment</button>
       </div>
     </div>
   </div>

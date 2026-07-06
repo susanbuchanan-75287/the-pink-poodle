@@ -78,6 +78,13 @@
   var knownVax = ['Rabies', 'Bordetella', 'DHPP', 'Canine Influenza'];
   var requiredVax = ['Rabies'];
   var dueCache = [];
+  var upcomingCache = [];            // scheduled appointments
+  var reportRange = 'week';          // today | week | month | all
+  var reportCache = null;
+  var schId = null;                  // ticket being scheduled
+  var depId = null;                  // ticket a deposit is being requested for
+  var rbId = null;                   // ticket being rebooked
+  var petPhotoCache = [];            // photos for the pet open in the editor
 
   /* =================================================================
      NAVIGATION
@@ -300,6 +307,8 @@
     if (sub === 'ledger') loadLedger();
     if (sub === 'clients') loadClients();
     if (sub === 'vaxdue') loadVaxDue();
+    if (sub === 'upcoming') loadUpcoming();
+    if (sub === 'reports') loadReport();
     if (sub === 'fees') loadFees();
   }
   document.querySelectorAll('#staffSubnav .pill').forEach(function (b) { b.addEventListener('click', function () { showSub(b.dataset.sub); }); });
@@ -328,19 +337,25 @@
       var done = t.step >= 6;
       var ready = t.step === 5;
       var chip = t.voided ? '<span class="statuschip statuschip--done">Voided</span>' : (t.paid ? '<span class="statuschip statuschip--done">Paid ✓</span>' : (done ? '<span class="statuschip statuschip--done">Picked up</span>' : (ready ? '<span class="statuschip statuschip--ready">Ready 🔔</span>' : '<span class="statuschip statuschip--go">' + esc(STEPS[t.step]) + '</span>')));
+      var apptBadge = t.apptDate ? '<span class="appt-badge ' + (t.confirmed ? '' : 'appt-badge--pending') + '">📅 ' + esc(t.apptDate) + (t.apptTime ? ' ' + esc(t.apptTime) : '') + (t.confirmed ? ' ✓' : ' · unconfirmed') + '</span>' : '';
+      var depBadge = (t.deposit && t.deposit.amount) ? '<span class="appt-badge ' + (t.deposit.status === 'paid' ? '' : 'appt-badge--pending') + '">💳 dep ' + money(t.deposit.amount) + (t.deposit.status === 'paid' ? (t.deposit.applied ? ' applied' : ' paid') : ' ' + esc(t.deposit.status || 'sent')) + '</span>' : '';
       var actions = '';
       if (!done && !t.voided) {
         if (t.step < 5) actions += '<button class="btn btn--primary btn--sm" data-adv="' + t.id + '" data-step="' + (t.step + 1) + '">Next: ' + esc(STEPS[t.step + 1]) + ' →</button>';
         if (t.step === 5) actions += '<button class="btn btn--gold btn--sm" data-adv="' + t.id + '" data-step="6">Mark picked up</button>';
         if (t.step >= 1) actions += '<button class="btn btn--soft btn--sm" data-adv="' + t.id + '" data-step="' + (t.step - 1) + '">‹ Back</button>';
       }
+      if (!done && !t.voided) actions += '<button class="btn btn--soft btn--sm" data-sched="' + t.id + '">📅 ' + (t.apptDate ? 'Reschedule' : 'Schedule') + '</button>';
+      if (!t.voided && t.apptDate && !t.confirmed) actions += '<button class="btn btn--soft btn--sm" data-confirm="' + t.id + '">✓ Confirm</button>';
+      if (!t.paid && !t.voided) actions += '<button class="btn btn--soft btn--sm" data-dep="' + t.id + '">💳 Deposit</button>';
       if (!t.paid && !t.voided) actions += '<button class="btn btn--gold btn--sm" data-co="' + t.id + '">💳 Checkout</button>';
+      if ((t.paid || done) && !t.voided) actions += '<button class="btn btn--soft btn--sm" data-rebook="' + t.id + '">🔁 Rebook</button>';
       if (!t.voided) actions += '<button class="btn btn--soft btn--sm" data-cx="' + t.id + '">Cancel</button>';
       if (ticketHasPayment(t)) actions += can('manager') ? '<button class="btn btn--soft btn--sm" data-void="' + t.id + '">Void</button>' : '';
       else if (!t.voided) actions += '<button class="btn btn--soft btn--sm" data-del="' + t.id + '">✕</button>';
       var owner = t.owner || {};
       return '<div class="card ticket ' + (ready ? 'ticket--ready' : '') + (done || t.voided ? ' ticket--done' : '') + '" style="' + (t.voided ? 'opacity:0.6;text-decoration:line-through' : '') + '">' +
-        '<div class="ticket__top"><strong>' + esc(t.pet && t.pet.name || t.petName) + '</strong>' + chip +
+        '<div class="ticket__top"><strong>' + esc(t.pet && t.pet.name || t.petName) + '</strong>' + chip + apptBadge + depBadge +
         '<span class="ticket__code" style="margin-left:auto">' + esc(t.code) + '</span></div>' +
         '<div class="ticket__svcs">' + esc((t.services || []).join(' · ')) + ' — ' + esc(t.stylist) +
         (t.requestedTime ? ' · ' + esc(t.requestedTime) : '') + (t.est ? ' · est ' + money(t.est) : '') +
@@ -359,6 +374,12 @@
       api('spaDelete', { pin: staffPin, id: el.dataset.del }).then(renderBoard).catch(function (e) { toast(e.message); });
     }); });
     box.querySelectorAll('[data-void]').forEach(function (el) { el.addEventListener('click', function () { voidTicket(el.dataset.void); }); });
+    box.querySelectorAll('[data-sched]').forEach(function (el) { el.addEventListener('click', function () { openSchedule(el.dataset.sched); }); });
+    box.querySelectorAll('[data-confirm]').forEach(function (el) { el.addEventListener('click', function () {
+      api('spaConfirm', { pin: staffPin, id: el.dataset.confirm }).then(function () { toast('Confirmed ✓'); renderBoard(); }).catch(function (e) { toast(e.message); });
+    }); });
+    box.querySelectorAll('[data-dep]').forEach(function (el) { el.addEventListener('click', function () { openDeposit(el.dataset.dep); }); });
+    box.querySelectorAll('[data-rebook]').forEach(function (el) { el.addEventListener('click', function () { openRebook(el.dataset.rebook); }); });
   }
   function voidTicket(id) {
     if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
@@ -691,6 +712,17 @@
     $('petSize').value = p.size || '';
     $('petTemperament').value = p.temperament || '';
     $('petNotes').value = p.notes || '';
+    var g = p.groom || {};
+    $('petGroomStyle').value = g.style || '';
+    $('petGroomBody').value = g.body || '';
+    $('petGroomLegs').value = g.legs || '';
+    $('petGroomFace').value = g.face || '';
+    $('petGroomEars').value = g.ears || '';
+    $('petGroomTail').value = g.tail || '';
+    $('petGroomFeet').value = g.feet || '';
+    $('petGroomFinish').value = g.finish || '';
+    $('petGroomNotes').value = g.notes || '';
+    loadPetPhotos(p.id || '', editingClientId || '');
     editVax = (p.vaccinations || []).map(function (v) { return Object.assign({}, v); });
     if (!editVax.length && p.rabiesExpires) editVax.push({ type: 'Rabies', expires: p.rabiesExpires, verifiedAt: '', notes: p.vaxNotes || '' });
     if (!editVax.length) editVax.push({ type: 'Rabies', expires: '', verifiedAt: '', notes: '' });
@@ -745,7 +777,18 @@
       temperament: $('petTemperament').value.trim(),
       notes: $('petNotes').value.trim(),
       rabiesExpires: rabiesFrom(vaccinations),
-      vaccinations: vaccinations
+      vaccinations: vaccinations,
+      groom: {
+        style: $('petGroomStyle').value.trim(),
+        body: $('petGroomBody').value.trim(),
+        legs: $('petGroomLegs').value.trim(),
+        face: $('petGroomFace').value.trim(),
+        ears: $('petGroomEars').value.trim(),
+        tail: $('petGroomTail').value.trim(),
+        feet: $('petGroomFeet').value.trim(),
+        finish: $('petGroomFinish').value.trim(),
+        notes: $('petGroomNotes').value.trim()
+      }
     };
     if (editingPetIdx >= 0) editPets[editingPetIdx] = pet; else editPets.push(pet);
     $('petModal').classList.remove('open');
@@ -829,6 +872,8 @@
   function loadFees() {
     api('spaFees', { pin: staffPin }).then(function (res) { feesCache = res.fees || []; drawFees(); }).catch(function (e) { toast(e.message); });
     loadVaxConfig();
+    loadDepositConfig();
+    loadReviewConfig();
   }
   function drawFees() {
     $('feesBody').innerHTML = feesCache.map(function (f, i) {
@@ -897,10 +942,277 @@
   });
 
   /* =================================================================
+     LEVEL-UP: scheduling, deposits, rebook, upcoming, reports,
+     deposit/review config, before-after photos
+     ================================================================= */
+
+  /* ---------- schedule appointment ---------- */
+  function openSchedule(id) {
+    var t = boardCache.filter(function (x) { return x.id === id; })[0]; if (!t) return;
+    schId = id;
+    $('scheduleTitle').textContent = 'Schedule — ' + (t.pet && t.pet.name || t.petName || 'pup');
+    $('schDate').min = todayISO();
+    $('schDate').value = t.apptDate || todayISO();
+    $('schTime').value = t.apptTime || '';
+    $('scheduleModal').classList.add('open');
+  }
+  $('schCancel').addEventListener('click', function () { $('scheduleModal').classList.remove('open'); });
+  $('schSave').addEventListener('click', function () {
+    var date = $('schDate').value;
+    if (!date) { toast('Pick a date.'); return; }
+    api('spaSchedule', { pin: staffPin, id: schId, apptDate: date, apptTime: $('schTime').value || '' })
+      .then(function () { $('scheduleModal').classList.remove('open'); toast('Appointment scheduled 📅'); renderBoard(); })
+      .catch(function (e) { toast(e.message); });
+  });
+
+  /* ---------- deposits (Square) ---------- */
+  function openDeposit(id) {
+    var t = boardCache.filter(function (x) { return x.id === id; })[0]; if (!t) return;
+    depId = id;
+    var dep = t.deposit || {};
+    $('depositTitle').textContent = 'Deposit — ' + (t.pet && t.pet.name || t.petName || 'pup');
+    $('depAmount').value = dep.amount || 30;
+    $('depStatus').innerHTML = dep.amount
+      ? 'Current: ' + money(dep.amount) + ' · <strong>' + esc(dep.status || 'sent') + '</strong>' + (dep.url ? ' · <a href="' + esc(dep.url) + '" target="_blank" rel="noopener">link</a>' : '')
+      : 'No deposit requested yet.';
+    $('depCheck').style.display = dep.orderId ? '' : 'none';
+    $('depositModal').classList.add('open');
+  }
+  $('depCancel').addEventListener('click', function () { $('depositModal').classList.remove('open'); });
+  $('depSend').addEventListener('click', function () {
+    var amount = Number($('depAmount').value) || 0;
+    if (amount < 1) { toast('Enter an amount.'); return; }
+    $('depSend').disabled = true;
+    api('spaDepositRequest', { pin: staffPin, id: depId, amount: amount })
+      .then(function (res) { toast('Deposit link sent ' + (res.sent === 'sms' ? '(text)' : res.sent === 'email' ? '(email)' : '') + ' 💳'); $('depositModal').classList.remove('open'); renderBoard(); })
+      .catch(function (e) { toast(e.message); })
+      .then(function () { $('depSend').disabled = false; });
+  });
+  $('depCheck').addEventListener('click', function () {
+    api('spaDepositCheck', { pin: staffPin, id: depId })
+      .then(function (res) { toast(res.status === 'paid' ? 'Deposit paid ✓' : 'Still pending…'); if (res.status === 'paid') { $('depositModal').classList.remove('open'); renderBoard(); } })
+      .catch(function (e) { toast(e.message); });
+  });
+
+  /* ---------- rebook / standing appointments ---------- */
+  function openRebook(id) {
+    var t = boardCache.filter(function (x) { return x.id === id; })[0]; if (!t) return;
+    rbId = id;
+    $('rebookTitle').textContent = 'Rebook — ' + (t.pet && t.pet.name || t.petName || 'pup');
+    $('rebookModal').classList.add('open');
+  }
+  $('rbCancel').addEventListener('click', function () { $('rebookModal').classList.remove('open'); });
+  $('rbSave').addEventListener('click', function () {
+    var weeks = Number($('rebookWeeks').value) || 4;
+    $('rbSave').disabled = true;
+    api('spaRebook', { pin: staffPin, id: rbId, weeks: weeks })
+      .then(function (res) { $('rebookModal').classList.remove('open'); toast('Next visit set for ' + esc(res.apptDate) + ' 🔁'); renderBoard(); })
+      .catch(function (e) { toast(e.message); })
+      .then(function () { $('rbSave').disabled = false; });
+  });
+
+  /* ---------- upcoming appointments ---------- */
+  function loadUpcoming() {
+    $('upcomingBody').innerHTML = '<p class="muted">Loading…</p>';
+    api('spaUpcoming', { pin: staffPin }).then(function (res) { upcomingCache = res.tickets || []; drawUpcoming(); })
+      .catch(function (e) { $('upcomingBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  function drawUpcoming() {
+    if (!upcomingCache.length) { $('upcomingBody').innerHTML = '<div class="empty"><div class="big">📅</div><p>No upcoming appointments scheduled.</p></div>'; return; }
+    $('upcomingBody').innerHTML = upcomingCache.map(function (t) {
+      var owner = t.owner || {};
+      var badge = t.confirmed ? '<span class="appt-badge">✓ confirmed</span>' : '<span class="appt-badge appt-badge--pending">unconfirmed</span>';
+      var contact = owner.phone ? '<a class="btn btn--soft btn--sm" href="tel:' + esc(owner.phone) + '">📞 Call</a>' +
+        '<a class="btn btn--soft btn--sm" href="' + esc(smsHref(owner.phone, owner.name)) + '">💬 Text</a>' : '';
+      var confirmBtn = !t.confirmed ? '<button class="btn btn--soft btn--sm" data-upconfirm="' + t.id + '">✓ Confirm</button>' : '';
+      return '<div class="card"><div class="ticket__top"><strong>📅 ' + esc(t.apptDate) + (t.apptTime ? ' · ' + esc(t.apptTime) : '') + '</strong>' + badge +
+        '<span class="ticket__code" style="margin-left:auto">' + esc(t.code) + '</span></div>' +
+        '<div class="ticket__svcs">🐩 ' + esc(t.pet && t.pet.name || t.petName || '') + ' — ' + esc((t.services || []).join(' · ')) + ' · ' + esc(t.stylist) + '</div>' +
+        (owner.name || owner.phone ? '<div class="muted">📱 ' + esc(owner.name || '') + (owner.phone ? ' · ' + esc(owner.phone) : '') + '</div>' : '') +
+        '<div class="client__contact" style="margin-top:0.4rem">' + contact + confirmBtn + '</div></div>';
+    }).join('');
+    $('upcomingBody').querySelectorAll('[data-upconfirm]').forEach(function (el) { el.addEventListener('click', function () {
+      api('spaConfirm', { pin: staffPin, id: el.dataset.upconfirm }).then(function () { toast('Confirmed ✓'); loadUpcoming(); }).catch(function (e) { toast(e.message); });
+    }); });
+  }
+  $('upcomingRefresh').addEventListener('click', loadUpcoming);
+  $('upcomingCsvBtn').addEventListener('click', function () {
+    var rows = [['Date', 'Time', 'Confirmed', 'Pet', 'Services', 'Stylist', 'Owner', 'Phone', 'Code']];
+    upcomingCache.forEach(function (t) {
+      var o = t.owner || {};
+      rows.push([t.apptDate || '', t.apptTime || '', t.confirmed ? 'yes' : 'no', (t.pet && t.pet.name) || t.petName || '', (t.services || []).join(' | '), t.stylist || '', o.name || '', o.phone || '', t.code || '']);
+    });
+    dl('pink-poodle-upcoming-' + todayISO() + '.csv', 'text/csv', rows.map(csvRow).join('\r\n'));
+  });
+
+  /* ---------- reports / KPIs ---------- */
+  function loadReport() {
+    document.querySelectorAll('#reportRange .pill').forEach(function (b) { b.classList.toggle('sel', b.dataset.range === reportRange); });
+    $('reportBody').innerHTML = '<p class="muted">Loading…</p>';
+    api('spaReport', { pin: staffPin, range: reportRange }).then(function (res) { reportCache = res.report || null; drawReport(); })
+      .catch(function (e) { $('reportBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  function drawReport() {
+    var r = reportCache; if (!r) { $('reportBody').innerHTML = '<p class="muted">No data.</p>'; return; }
+    function kpi(num, lbl) { return '<div class="kpi"><div class="kpi__num">' + num + '</div><div class="kpi__lbl">' + esc(lbl) + '</div></div>'; }
+    var kpis = '<div class="kpis">' +
+      kpi(money(r.revenue), 'Revenue') +
+      kpi(r.visits, 'Paid visits') +
+      kpi(money(r.avgTicket), 'Avg ticket') +
+      kpi(money(r.tips), 'Tips') +
+      kpi(money(r.deposits), 'Deposits') +
+      kpi(r.booked, 'Booked') +
+      kpi(r.noShows + ' (' + r.noShowRate + '%)', 'No-shows') +
+      kpi(money(r.noShowFees), 'No-show fees') +
+      kpi(r.cancels, 'Cancellations') +
+      kpi(r.returningVisits, 'Returning') +
+      '</div>';
+    var svc = (r.byService || []).length
+      ? '<div class="card"><h2 style="margin-top:0;font-size:1rem">Top services</h2>' + r.byService.map(function (s) {
+          return '<div style="display:flex;justify-content:space-between;padding:0.15rem 0"><span>' + esc(s.service) + '</span><strong>' + s.count + '</strong></div>';
+        }).join('') + '</div>'
+      : '';
+    var days = (r.byDay || []).length
+      ? '<div class="card" style="margin-top:0.6rem"><h2 style="margin-top:0;font-size:1rem">Revenue by day</h2>' + r.byDay.map(function (d) {
+          return '<div style="display:flex;justify-content:space-between;padding:0.15rem 0"><span class="muted">' + esc(d.day) + '</span><strong>' + money(d.revenue) + '</strong></div>';
+        }).join('') + '</div>'
+      : '';
+    $('reportBody').innerHTML = kpis + svc + days;
+  }
+  document.querySelectorAll('#reportRange .pill').forEach(function (b) { b.addEventListener('click', function () { reportRange = b.dataset.range; loadReport(); }); });
+  $('reportRefresh').addEventListener('click', loadReport);
+  $('reportCsvBtn').addEventListener('click', function () {
+    var r = reportCache; if (!r) { toast('Nothing to export yet.'); return; }
+    var rows = [['Metric', 'Value']];
+    rows.push(['Range', r.range]); rows.push(['Since', r.since]);
+    rows.push(['Revenue', r.revenue]); rows.push(['Paid visits', r.visits]); rows.push(['Avg ticket', r.avgTicket]);
+    rows.push(['Tips', r.tips]); rows.push(['Deposits', r.deposits]); rows.push(['Booked', r.booked]);
+    rows.push(['No-shows', r.noShows]); rows.push(['No-show rate %', r.noShowRate]); rows.push(['No-show fees', r.noShowFees]);
+    rows.push(['Cancellations', r.cancels]); rows.push(['Returning visits', r.returningVisits]);
+    rows.push([]); rows.push(['Service', 'Count']);
+    (r.byService || []).forEach(function (s) { rows.push([s.service, s.count]); });
+    rows.push([]); rows.push(['Day', 'Revenue']);
+    (r.byDay || []).forEach(function (d) { rows.push([d.day, d.revenue]); });
+    dl('pink-poodle-report-' + r.range + '-' + todayISO() + '.csv', 'text/csv', rows.map(csvRow).join('\r\n'));
+  });
+
+  /* ---------- deposit config ---------- */
+  function loadDepositConfig() {
+    if (!can('manager')) return;
+    api('spaDepositConfig', { pin: staffPin }).then(function (res) {
+      var c = res.config || {};
+      $('depCfgEnabled').checked = !!c.enabled;
+      $('depCfgAmount').value = c.defaultAmount || 30;
+    }).catch(function () {});
+  }
+  $('depCfgSaveBtn').addEventListener('click', function () {
+    if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
+    api('spaDepositConfigSave', { pin: staffPin, enabled: $('depCfgEnabled').checked, defaultAmount: Number($('depCfgAmount').value) || 0 })
+      .then(function () { toast('Deposit settings saved 💳'); }).catch(function (e) { toast(e.message); });
+  });
+
+  /* ---------- review booster config ---------- */
+  function loadReviewConfig() {
+    if (!can('manager')) return;
+    api('spaReviewConfig', { pin: staffPin }).then(function (res) {
+      var c = res.config || {};
+      $('revCfgEnabled').checked = !!c.enabled;
+      $('revCfgDelay').value = c.delayHours || 3;
+      $('revCfgGoogle').value = c.googleUrl || '';
+      $('revCfgFacebook').value = c.facebookUrl || '';
+      $('revCfgMsg').value = c.message || '';
+    }).catch(function () {});
+  }
+  $('revCfgSaveBtn').addEventListener('click', function () {
+    if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
+    api('spaReviewConfigSave', {
+      pin: staffPin, enabled: $('revCfgEnabled').checked,
+      delayHours: Number($('revCfgDelay').value) || 3,
+      googleUrl: $('revCfgGoogle').value.trim(),
+      facebookUrl: $('revCfgFacebook').value.trim(),
+      message: $('revCfgMsg').value.trim()
+    }).then(function () { toast('Review settings saved ⭐'); }).catch(function (e) { toast(e.message); });
+  });
+
+  /* ---------- before/after photos ---------- */
+  function loadPetPhotos(petId, clientId) {
+    petPhotoCache = [];
+    var box = $('petPhotos');
+    if (!petId) { $('petPhotosMsg').textContent = 'Save the pet first, then reopen to add before & after photos.'; box.innerHTML = ''; return; }
+    $('petPhotosMsg').textContent = '';
+    box.innerHTML = '<p class="muted">Loading…</p>';
+    api('spaPhotos', { pin: staffPin, petId: petId }).then(function (res) {
+      petPhotoCache = res.photos || [];
+      drawPetPhotos();
+    }).catch(function (e) { box.innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  function drawPetPhotos() {
+    var box = $('petPhotos');
+    if (!petPhotoCache.length) { box.innerHTML = '<p class="muted" style="grid-column:1/-1">No photos yet.</p>'; return; }
+    box.innerHTML = petPhotoCache.map(function (p) {
+      return '<div class="ph" data-ph="' + esc(p.id) + '">' +
+        '<span class="ph__tag">' + esc(p.tag) + '</span>' +
+        (can('manager') ? '<button class="ph__rm" data-phrm="' + esc(p.id) + '" type="button" title="Delete">✕</button>' : '') +
+        (p.caption ? '<span class="ph__cap">' + esc(p.caption) + '</span>' : '') +
+        '</div>';
+    }).join('');
+    // Lazy-fetch each image behind the PIN and inject.
+    petPhotoCache.forEach(function (p) {
+      api('spaPhoto', { pin: staffPin, id: p.id }).then(function (res) {
+        var cell = box.querySelector('[data-ph="' + p.id + '"]');
+        if (cell && res.dataUrl) { var img = document.createElement('img'); img.src = res.dataUrl; img.alt = p.tag; cell.insertBefore(img, cell.firstChild); }
+      }).catch(function () {});
+    });
+    box.querySelectorAll('[data-phrm]').forEach(function (el) { el.addEventListener('click', function () {
+      if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
+      if (!confirm('Delete this photo?')) return;
+      api('spaPhotoDelete', { pin: staffPin, id: el.dataset.phrm }).then(function () {
+        petPhotoCache = petPhotoCache.filter(function (x) { return x.id !== el.dataset.phrm; });
+        drawPetPhotos(); toast('Photo deleted');
+      }).catch(function (e) { toast(e.message); });
+    }); });
+  }
+  $('petPhotoUploadBtn').addEventListener('click', function () {
+    var petId = $('petId').value;
+    if (!petId) { toast('Save the pet first.'); return; }
+    var f = $('petPhotoFile').files[0];
+    if (!f) { toast('Choose a photo.'); return; }
+    if (f.size > 5 * 1024 * 1024) { toast('Image must be under 5 MB.'); return; }
+    var btn = $('petPhotoUploadBtn'); btn.disabled = true;
+    var reader = new FileReader();
+    reader.onload = function () {
+      api('spaPhotoUpload', { pin: staffPin, petId: petId, clientId: editingClientId || '', tag: $('petPhotoTag').value, caption: $('petPhotoCaption').value.trim(), dataUrl: reader.result })
+        .then(function () { $('petPhotoFile').value = ''; $('petPhotoCaption').value = ''; toast('Photo added 📸'); loadPetPhotos(petId, editingClientId); })
+        .catch(function (e) { toast(e.message); })
+        .then(function () { btn.disabled = false; });
+    };
+    reader.onerror = function () { toast('Could not read that file.'); btn.disabled = false; };
+    reader.readAsDataURL(f);
+  });
+
+  /* =================================================================
      INIT
      ================================================================= */
   $('bkDate').min = todayISO(); $('bkDate').value = todayISO();
   renderServices(); renderAddons(); renderStylists(); renderTotal();
   setStaffUI(false);
   if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(function () {}); }
+
+  // Appointment confirmation deep-link: spa.html?confirm=CODE
+  (function () {
+    var m = /[?&]confirm=([A-Za-z0-9]+)/.exec(window.location.search);
+    if (!m) return;
+    var code = m[1].toUpperCase();
+    api('spaConfirmByCode', { code: code }).then(function () {
+      go('track');
+      $('trackCode').value = code;
+      toast('Thanks — your appointment is confirmed! 🩷');
+      doTrack();
+    }).catch(function (e) {
+      go('track');
+      $('trackCode').value = code;
+      toast(e.message || 'Could not confirm that code.');
+    });
+    try { history.replaceState(null, '', window.location.pathname); } catch (e) {}
+  })();
 })();

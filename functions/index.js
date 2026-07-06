@@ -14,6 +14,7 @@
  */
 
 const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 
 const GH_TOKEN = defineSecret("GH_TOKEN");
@@ -185,7 +186,13 @@ const SETTINGS = "pp_settings";
 const MESSAGES = "pp_messages";
 const STAFF = "pp_staff";
 const PUSH_SUBS = "pp_push_subs";
+const SPA_PHOTOS = "pp_spa_photos";
+const PET_BUCKET = "pp-pets-binditails-da2de"; // private (public access prevented); served via function behind PIN
 const now = () => admin.firestore.FieldValue.serverTimestamp();
+
+function petBucket() {
+  return admin.storage().bucket(PET_BUCKET);
+}
 
 // Default roster seeded on first staffList when pp_staff is empty.
 const DEFAULT_STAFF = [
@@ -1610,6 +1617,8 @@ function cleanPet(p) {
   if (legacyRabies && !vaccinations.some((v) => v.type.toLowerCase() === "rabies")) {
     vaccinations.unshift(cleanVax({ type: "Rabies", expires: legacyRabies }));
   }
+  const g = p.groom || {};
+  const gtxt = (v, n) => String(v || "").trim().slice(0, n);
   return {
     id: String(p.id || "").slice(0, 40) || genId(),
     name: String(p.name || "").trim().slice(0, 40),
@@ -1617,6 +1626,19 @@ function cleanPet(p) {
     size: String(p.size || "").trim().slice(0, 40),
     temperament: String(p.temperament || "").trim().slice(0, 60),
     notes: String(p.notes || "").trim().slice(0, 400),
+    // Grooming "cut sheet" — the style + clipper guard lengths per area, so any
+    // groomer can reproduce the owner's preferred look every visit.
+    groom: {
+      style: gtxt(g.style, 80),
+      body: gtxt(g.body, 24),
+      legs: gtxt(g.legs, 24),
+      face: gtxt(g.face, 40),
+      ears: gtxt(g.ears, 40),
+      tail: gtxt(g.tail, 40),
+      feet: gtxt(g.feet, 40),
+      finish: gtxt(g.finish, 120),
+      notes: gtxt(g.notes, 300),
+    },
     // Kept for backward compatibility / one-line display; the source of truth
     // is now vaccinations[].
     rabiesExpires: (vaccinations.find((v) => v.type.toLowerCase() === "rabies") || {}).expires || "",
@@ -1637,6 +1659,7 @@ function clientOut(doc) {
     email: d.email || "",
     notes: d.notes || "",
     pets: Array.isArray(d.pets) ? d.pets.map(cleanPet) : [],
+    rebookEveryWeeks: Math.max(0, Math.min(52, Number(d.rebookEveryWeeks) || 0)),
     createdAt: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0,
     updatedAt: d.updatedAt && d.updatedAt.toMillis ? d.updatedAt.toMillis() : 0,
   };
@@ -1710,6 +1733,85 @@ async function ticketTotalsByPhone() {
 }
 
 
+/* ---- appointment / retention helpers -------------------------------------- */
+function isIsoDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")); }
+function isHhmm(s) { return /^\d{2}:\d{2}$/.test(String(s || "")); }
+function addDaysIso(iso, days) {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function nowMs() { return Date.now(); }
+function etHour() {
+  return Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false }).format(new Date()));
+}
+
+async function loadReviewConfig() {
+  const def = { enabled: false, googleUrl: "", facebookUrl: "https://www.facebook.com/people/The-Pink-Poodle/61556253292828/", delayHours: 3, message: "" };
+  try {
+    const snap = await db.collection("pp_config").doc("spaReview").get();
+    if (snap.exists) {
+      const d = snap.data() || {};
+      return {
+        enabled: !!d.enabled,
+        googleUrl: String(d.googleUrl || "").slice(0, 400),
+        facebookUrl: String(d.facebookUrl || def.facebookUrl).slice(0, 400),
+        delayHours: Math.max(1, Math.min(72, Number(d.delayHours) || 3)),
+        message: String(d.message || "").slice(0, 300),
+      };
+    }
+  } catch (e) { console.error("loadReviewConfig failed", e && e.message); }
+  return def;
+}
+
+async function loadDepositConfig() {
+  const def = { enabled: false, defaultAmount: 25 };
+  try {
+    const snap = await db.collection("pp_config").doc("spaDeposit").get();
+    if (snap.exists) {
+      const d = snap.data() || {};
+      return { enabled: !!d.enabled, defaultAmount: Math.max(1, Math.min(500, Number(d.defaultAmount) || 25)) };
+    }
+  } catch (e) { console.error("loadDepositConfig failed", e && e.message); }
+  return def;
+}
+
+/** True only if a matching customer has explicitly texted STOP (hard opt-out). */
+async function smsHardOptedOut(phone) {
+  const p = normalizePhone(phone);
+  if (!p) return false;
+  try {
+    let snap = await db.collection(CUSTOMERS).where("phone", "==", p).limit(1).get();
+    if (snap.empty) snap = await db.collection(CUSTOMERS).where("phones", "array-contains", { type: "Mobile", number: p }).limit(1).get();
+    if (!snap.empty && snap.docs[0].data().smsOptOutAt) return true;
+  } catch (e) { console.error("smsHardOptedOut failed", e && e.message); }
+  return false;
+}
+
+/**
+ * Notify a customer over the best available channel(s). Transactional messages
+ * (reminders, confirmations, deposit links) always go by SMS when possible and
+ * only skip on a hard STOP; email is sent when an address exists. Returns the
+ * list of channels actually used.
+ */
+async function notifyCustomer({ phone, email, smsBody, emailSubject, emailHtml }) {
+  const used = [];
+  const to = normalizePhone(phone);
+  try {
+    if (to && smsBody && twilioReady() && !(await smsHardOptedOut(to))) {
+      await sendSms(to, smsBody);
+      used.push("sms");
+    }
+  } catch (e) { console.error("notifyCustomer sms failed", e && e.message); }
+  try {
+    if (email && /.+@.+\..+/.test(email) && emailSubject) {
+      await sendEmail({ to: email, subject: emailSubject, html: emailHtml || "", text: (emailHtml || "").replace(/<[^>]+>/g, " ") });
+      used.push("email");
+    }
+  } catch (e) { console.error("notifyCustomer email failed", e && e.message); }
+  return used;
+}
+
 function spaTicketPublic(doc) {
   const d = doc.data() || {};
   const step = typeof d.step === "number" ? d.step : 0;
@@ -1725,6 +1827,9 @@ function spaTicketPublic(doc) {
     voided: !!d.voided,
     requestedDate: d.requestedDate || "",
     requestedTime: d.requestedTime || "",
+    apptDate: d.apptDate || "",
+    apptTime: d.apptTime || "",
+    confirmed: !!d.confirmed,
   };
 }
 function spaTicketFull(doc) {
@@ -1744,6 +1849,16 @@ function spaTicketFull(doc) {
     cancelReason: d.cancelReason || "",
     voidReason: d.voidReason || "",
     clientId: d.clientId || "",
+    confirmedAt: d.confirmedAt && d.confirmedAt.toMillis ? d.confirmedAt.toMillis() : (typeof d.confirmedAt === "number" ? d.confirmedAt : 0),
+    confirmedBy: d.confirmedBy || "",
+    reminderSentAt: typeof d.reminderSentAt === "number" ? d.reminderSentAt : 0,
+    reviewAskedAt: typeof d.reviewAskedAt === "number" ? d.reviewAskedAt : 0,
+    deposit: d.deposit ? {
+      amount: Number(d.deposit.amount) || 0,
+      status: d.deposit.status || "pending",
+      url: d.deposit.url || "",
+      applied: !!d.deposit.applied,
+    } : null,
     createdAt: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0,
   });
 }
@@ -1803,7 +1918,7 @@ exports.pinkPoodleSpa = onRequest(
     const b = req.body || {};
     const action = b.action;
     const ip = clientIp(req);
-    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode"];
+    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode", "spaConfirmByCode"];
     let actor = null;
 
     try {
@@ -1850,6 +1965,11 @@ exports.pinkPoodleSpa = onRequest(
             stylist: String(b.stylist || "No preference").slice(0, 40),
             requestedDate: String(b.requestedDate || "").slice(0, 40),
             requestedTime: String(b.requestedTime || "").slice(0, 40),
+            // If the customer picked an exact date, seed the structured
+            // appointment fields so reminders/confirmations can fire.
+            apptDate: isIsoDate(b.requestedDate) ? b.requestedDate : "",
+            apptTime: isHhmm(b.requestedTime) ? b.requestedTime : "",
+            confirmed: false,
             est: Math.max(0, Number(b.est) || 0),
             createdAt: now(),
           };
@@ -1903,6 +2023,19 @@ exports.pinkPoodleSpa = onRequest(
           return res.json({ ok: true });
         }
 
+        case "spaConfirmByCode": {
+          const ok = await checkRateLimit("spaconfirm", ip, { max: 20, windowMs: 10 * 60 * 1000 });
+          if (!ok) return res.status(429).json({ error: "Too many requests." });
+          const codeUp = String(b.code || "").trim().toUpperCase().slice(0, 10);
+          const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
+          if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
+          const doc = snap.docs[0];
+          const t = doc.data() || {};
+          if (t.cancelled || t.voided) return res.status(400).json({ error: "That appointment is no longer active — please text the salon." });
+          await doc.ref.set({ confirmed: true, confirmedAt: nowMs(), confirmedBy: "customer" }, { merge: true });
+          return res.json({ ok: true, confirmed: true });
+        }
+
         /* ---------------- staff (PIN required) ---------------- */
         case "spaBoard": {
           const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(200).get();
@@ -1916,6 +2049,67 @@ exports.pinkPoodleSpa = onRequest(
           const step = Math.max(0, Math.min(6, Number(b.step)));
           await db.collection(SPA_TICKETS).doc(b.id).set({ step, cancelled: false }, { merge: true });
           return res.json({ ok: true });
+        }
+
+        case "spaSchedule": {
+          // Set/replace the structured appointment date & time on a ticket so it
+          // enters the reminder + confirmation pipeline.
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const apptDate = isIsoDate(b.apptDate) ? b.apptDate : "";
+          const apptTime = isHhmm(b.apptTime) ? b.apptTime : "";
+          if (b.apptDate && !apptDate) return res.status(400).json({ error: "Use a real date (YYYY-MM-DD)." });
+          // Changing the date clears a prior confirmation + reminder so they re-fire.
+          await db.collection(SPA_TICKETS).doc(b.id).set({
+            apptDate, apptTime,
+            confirmed: false, confirmedAt: admin.firestore.FieldValue.delete(), confirmedBy: "",
+            reminderSentAt: admin.firestore.FieldValue.delete(),
+          }, { merge: true });
+          return res.json({ ok: true, apptDate, apptTime });
+        }
+
+        case "spaConfirm": {
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          await db.collection(SPA_TICKETS).doc(b.id).set({ confirmed: true, confirmedAt: nowMs(), confirmedBy: "staff" }, { merge: true });
+          return res.json({ ok: true });
+        }
+
+        case "spaRebook": {
+          // Create the next standing appointment N weeks out, cloning the pup,
+          // owner, services & stylist. Optionally remember the cadence on the
+          // client so the desk sees the standing schedule.
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const weeks = Math.max(1, Math.min(52, Number(b.weeks) || 0));
+          if (!weeks) return res.status(400).json({ error: "Choose how many weeks out." });
+          const src = await db.collection(SPA_TICKETS).doc(b.id).get();
+          if (!src.exists) return res.status(404).json({ error: "Ticket not found." });
+          const s = src.data() || {};
+          const baseIso = isIsoDate(s.apptDate) ? s.apptDate : todayET();
+          const nextDate = addDaysIso(baseIso, weeks * 7);
+          const rec = {
+            code: genCode(), step: 0, cancelled: false, paid: false, date: todayET(),
+            pet: s.pet || { name: "" }, owner: s.owner || {},
+            services: (s.services || []).slice(0, 20), items: [],
+            stylist: s.stylist || "No preference",
+            requestedDate: nextDate, requestedTime: s.apptTime || "",
+            apptDate: nextDate, apptTime: isHhmm(s.apptTime) ? s.apptTime : "",
+            confirmed: false, standing: true, rebookedFrom: b.id,
+            clientId: s.clientId || "", est: Number(s.est) || 0, createdAt: now(),
+          };
+          const r = await db.collection(SPA_TICKETS).add(rec);
+          if (s.clientId) {
+            try { await db.collection(SPA_CLIENTS).doc(s.clientId).set({ rebookEveryWeeks: weeks, updatedAt: now() }, { merge: true }); } catch (_) {}
+          }
+          return res.json({ ok: true, id: r.id, code: rec.code, apptDate: nextDate });
+        }
+
+        case "spaUpcoming": {
+          // Scheduled appointments from today forward, soonest first.
+          const today = todayET();
+          const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(500).get();
+          const rows = snap.docs.map(spaTicketFull)
+            .filter((t) => t.apptDate && t.apptDate >= today && !t.cancelled && !t.voided && t.step < 6)
+            .sort((a, c) => (a.apptDate + (a.apptTime || "")).localeCompare(c.apptDate + (c.apptTime || "")));
+          return res.json({ ok: true, tickets: rows });
         }
 
         case "spaWalkin": {
@@ -1940,11 +2134,22 @@ exports.pinkPoodleSpa = onRequest(
           const subtotal = Math.max(0, Math.round((gross - discount) * 100) / 100);
           const total = Math.round((subtotal + tip) * 100) / 100;
           const assetAcct = /card|credit|square/i.test(payMethod) ? "Card / Bank" : /venmo|cash ?app|paypal|zelle/i.test(payMethod) ? payMethod : "Cash";
-          const lines = [{ acct: assetAcct, dr: total }, { acct: "Grooming Revenue", cr: subtotal }];
+          // If a deposit was already collected (Square) and not yet applied,
+          // credit it toward this checkout: the customer only owes the balance,
+          // and the "Customer Deposits" liability is cleared out. Keeps the
+          // double-entry books correct without double-counting the cash.
+          const dep = t.deposit || {};
+          const depApplied = (dep.status === "paid" && !dep.applied) ? Math.min(Number(dep.amount) || 0, total) : 0;
+          const dueNow = Math.round((total - depApplied) * 100) / 100;
+          const lines = [{ acct: "Grooming Revenue", cr: subtotal }];
           if (tip > 0) lines.push({ acct: "Tips", cr: tip });
-          const ledgerId = total > 0 ? await postLedger({ memo: `${(t.pet && t.pet.name) || "Client"} — ${payMethod}`, ref: t.code, lines }) : null;
-          await ref.set({ paid: true, payMethod, items, discount, tip, finalTotal: total, ledgerId, paidAt: now(), step: Math.max(t.step || 0, 6) }, { merge: true });
-          return res.json({ ok: true, total });
+          if (dueNow > 0) lines.push({ acct: assetAcct, dr: dueNow });
+          if (depApplied > 0) lines.push({ acct: "Customer Deposits", dr: depApplied });
+          const ledgerId = total > 0 ? await postLedger({ memo: `${(t.pet && t.pet.name) || "Client"} — ${payMethod}${depApplied ? " (deposit applied)" : ""}`, ref: t.code, lines }) : null;
+          const patch = { paid: true, payMethod, items, discount, tip, finalTotal: total, depositApplied: depApplied, ledgerId, paidAt: now(), step: Math.max(t.step || 0, 6) };
+          if (depApplied > 0) patch.deposit = Object.assign({}, dep, { applied: true });
+          await ref.set(patch, { merge: true });
+          return res.json({ ok: true, total, dueNow, depositApplied: depApplied });
         }
 
         case "spaCancel": {
@@ -1977,6 +2182,7 @@ exports.pinkPoodleSpa = onRequest(
           const reversals = [];
           if (t.ledgerId) { const id = await reverseLedger(t.ledgerId, `Void — ${(t.pet && t.pet.name) || "Client"} (${t.code || ""})`); if (id) reversals.push(id); }
           if (t.cancelLedgerId) { const id = await reverseLedger(t.cancelLedgerId, `Void fee — ${(t.pet && t.pet.name) || "Client"} (${t.code || ""})`); if (id) reversals.push(id); }
+          if (t.deposit && t.deposit.ledgerId) { const id = await reverseLedger(t.deposit.ledgerId, `Void deposit — ${(t.pet && t.pet.name) || "Client"} (${t.code || ""})`); if (id) reversals.push(id); }
           await ref.set({ voided: true, voidReason: reason, voidReversals: reversals, voidedAt: now() }, { merge: true });
           return res.json({ ok: true, reversals: reversals.length });
         }
@@ -2027,6 +2233,201 @@ exports.pinkPoodleSpa = onRequest(
           const fees = (Array.isArray(b.fees) ? b.fees : []).map((f) => ({ label: String(f.label || "").slice(0, 40), amount: Math.max(0, Number(f.amount) || 0) })).filter((f) => f.label).slice(0, 40);
           await db.collection("pp_config").doc("spaFees").set({ fees, updatedAt: now() });
           return res.json({ ok: true, fees });
+        }
+
+        /* ---------------- Reports / KPIs ---------------- */
+        case "spaReport": {
+          const range = ["today", "week", "month", "all"].indexOf(b.range) >= 0 ? b.range : "month";
+          const today = todayET();
+          let since = "0000-00-00";
+          if (range === "today") since = today;
+          else if (range === "week") since = addDaysIso(today, -6);
+          else if (range === "month") since = addDaysIso(today, -29);
+          const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(4000).get();
+          const rep = { range, since, revenue: 0, tips: 0, deposits: 0, visits: 0, avgTicket: 0, cancels: 0, noShows: 0, noShowFees: 0, booked: 0, byService: {}, byDay: {}, newClients: 0, returningVisits: 0 };
+          const svc = {}; const day = {}; const seenPhone = {};
+          snap.docs.forEach((d) => {
+            const x = d.data() || {};
+            if (x.voided) return;
+            const dt = x.date || (x.createdAt && x.createdAt.toMillis ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date(x.createdAt.toMillis())) : "");
+            if (dt && dt < since) return;
+            rep.booked++;
+            if (x.cancelled) { rep.cancels++; if (Number(x.noShowFee) > 0) { rep.noShows++; rep.noShowFees += Number(x.noShowFee) || 0; } return; }
+            const ft = Number(x.finalTotal) || 0;
+            const paid = !!x.paid || ft > 0;
+            if (paid) {
+              rep.visits++;
+              rep.revenue += ft;
+              rep.tips += Number(x.tip) || 0;
+              day[dt] = (day[dt] || 0) + ft;
+              (x.services || []).forEach((s) => { svc[s] = (svc[s] || 0) + 1; });
+              const ph = (x.owner && x.owner.phone) || "";
+              if (ph) { if (seenPhone[ph]) rep.returningVisits++; else seenPhone[ph] = true; }
+            }
+            if (x.deposit && x.deposit.status === "paid") rep.deposits += Number(x.deposit.amount) || 0;
+          });
+          rep.newClients = Object.keys(seenPhone).length;
+          rep.revenue = Math.round(rep.revenue * 100) / 100;
+          rep.tips = Math.round(rep.tips * 100) / 100;
+          rep.deposits = Math.round(rep.deposits * 100) / 100;
+          rep.noShowFees = Math.round(rep.noShowFees * 100) / 100;
+          rep.avgTicket = rep.visits ? Math.round((rep.revenue / rep.visits) * 100) / 100 : 0;
+          rep.noShowRate = rep.booked ? Math.round((rep.noShows / rep.booked) * 1000) / 10 : 0;
+          rep.byService = Object.keys(svc).map((k) => ({ service: k, count: svc[k] })).sort((a, c) => c.count - a.count).slice(0, 12);
+          rep.byDay = Object.keys(day).sort().map((k) => ({ day: k, revenue: Math.round(day[k] * 100) / 100 }));
+          return res.json({ ok: true, report: rep });
+        }
+
+        /* ---------------- Review booster config ---------------- */
+        case "spaReviewConfig":
+          return res.json({ ok: true, config: await loadReviewConfig() });
+
+        case "spaReviewConfigSave": {
+          if (!requireRole(actor, "manager", res)) return;
+          const cfg = {
+            enabled: !!b.enabled,
+            googleUrl: String(b.googleUrl || "").slice(0, 400),
+            facebookUrl: String(b.facebookUrl || "").slice(0, 400),
+            delayHours: Math.max(1, Math.min(72, Number(b.delayHours) || 3)),
+            message: String(b.message || "").slice(0, 300),
+            updatedAt: now(),
+          };
+          await db.collection("pp_config").doc("spaReview").set(cfg);
+          return res.json({ ok: true, config: await loadReviewConfig() });
+        }
+
+        /* ---------------- Deposits / no-show protection (Square) ---------------- */
+        case "spaDepositConfig":
+          return res.json({ ok: true, config: await loadDepositConfig() });
+
+        case "spaDepositConfigSave": {
+          if (!requireRole(actor, "manager", res)) return;
+          await db.collection("pp_config").doc("spaDeposit").set({ enabled: !!b.enabled, defaultAmount: Math.max(1, Math.min(500, Number(b.defaultAmount) || 25)), updatedAt: now() });
+          return res.json({ ok: true, config: await loadDepositConfig() });
+        }
+
+        case "spaDepositRequest": {
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const cfg = await loadSquareConfig();
+          if (!square.enabled(cfg)) return res.status(400).json({ error: "Connect Square (token + location) before requesting deposits." });
+          const ref = db.collection(SPA_TICKETS).doc(b.id);
+          const doc = await ref.get();
+          if (!doc.exists) return res.status(404).json({ error: "Ticket not found." });
+          const t = doc.data() || {};
+          const depCfg = await loadDepositConfig();
+          const amount = Math.max(1, Math.min(500, Number(b.amount) || depCfg.defaultAmount));
+          let link;
+          try {
+            link = await square.createPaymentLink(cfg, {
+              amount,
+              name: `Deposit — ${(t.pet && t.pet.name) || "grooming"} @ The Pink Poodle`,
+              note: `Booking ${t.code || ""}`,
+            });
+          } catch (e) {
+            return res.status(502).json({ error: "Square couldn't create the deposit link: " + (e.message || "error") });
+          }
+          const deposit = { amount, status: "pending", url: link.url, orderId: link.orderId, linkId: link.id, applied: false, requestedAt: nowMs() };
+          await ref.set({ deposit }, { merge: true });
+          // Send the pay link to the customer (SMS + email).
+          const o = t.owner || {};
+          const used = await notifyCustomer({
+            phone: o.phone, email: o.email,
+            smsBody: `The Pink Poodle 🐩: please secure ${(t.pet && t.pet.name) || "your pup"}'s appointment with a $${amount} deposit: ${link.url}`,
+            emailSubject: "Your Pink Poodle deposit link",
+            emailHtml: `<p>Hi ${esc(o.name || "there")},</p><p>Please secure ${esc((t.pet && t.pet.name) || "your pup")}'s grooming appointment with a <b>$${amount}</b> deposit:</p><p><a href="${esc(link.url)}">${esc(link.url)}</a></p><p>— The Pink Poodle</p>`,
+          });
+          return res.json({ ok: true, url: link.url, amount, sent: used });
+        }
+
+        case "spaDepositCheck": {
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const ref = db.collection(SPA_TICKETS).doc(b.id);
+          const doc = await ref.get();
+          if (!doc.exists) return res.status(404).json({ error: "Ticket not found." });
+          const t = doc.data() || {};
+          const dep = t.deposit || {};
+          if (!dep.orderId) return res.status(400).json({ error: "No deposit link on this ticket yet." });
+          if (dep.status === "paid") return res.json({ ok: true, status: "paid", amount: dep.amount });
+          const cfg = await loadSquareConfig();
+          if (!square.enabled(cfg)) return res.status(400).json({ error: "Square isn't connected." });
+          let state;
+          try { state = await square.getOrderPaid(cfg, dep.orderId); }
+          catch (e) { return res.status(502).json({ error: "Square check failed: " + (e.message || "error") }); }
+          if (state.paid) {
+            // Book the deposit as cash received against a liability until the
+            // visit is checked out (append-only ledger).
+            const ledgerId = await postLedger({ memo: `Deposit — ${(t.pet && t.pet.name) || "Client"} (${t.code || ""})`, ref: t.code, lines: [{ acct: "Card / Bank", dr: dep.amount }, { acct: "Customer Deposits", cr: dep.amount }] });
+            await ref.set({ deposit: Object.assign({}, dep, { status: "paid", paidAt: nowMs(), ledgerId }) }, { merge: true });
+            return res.json({ ok: true, status: "paid", amount: dep.amount });
+          }
+          return res.json({ ok: true, status: "pending", state: state.state });
+        }
+
+        /* ---------------- Before/after pet photos (private, behind PIN) ---------------- */
+        case "spaPhotoUpload": {
+          const petId = String(b.petId || "").slice(0, 40);
+          if (!petId) return res.status(400).json({ error: "Missing petId." });
+          const m = /^data:(image\/(jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.dataUrl || ""));
+          if (!m) return res.status(400).json({ error: "Send a JPEG, PNG, or WebP image." });
+          const contentType = m[1];
+          const buf = Buffer.from(m[3], "base64");
+          if (!buf.length || buf.length > 5 * 1024 * 1024) return res.status(400).json({ error: "Image must be under 5 MB." });
+          const tag = ["before", "after", "other"].indexOf(b.tag) >= 0 ? b.tag : "other";
+          const ext = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
+          const photoId = genId();
+          const path = `pets/${petId}/${photoId}.${ext}`;
+          try {
+            await petBucket().file(path).save(buf, { contentType, resumable: false, metadata: { cacheControl: "private, max-age=0" } });
+          } catch (e) {
+            console.error("spaPhotoUpload storage failed", e && e.message);
+            return res.status(502).json({ error: "Couldn't store the photo. Try again." });
+          }
+          const meta = {
+            petId, clientId: String(b.clientId || "").slice(0, 40), ticketId: String(b.ticketId || "").slice(0, 40),
+            tag, caption: String(b.caption || "").slice(0, 160), path, contentType,
+            by: actor.name || "Staff", at: nowMs(), createdAt: now(),
+          };
+          const r = await db.collection(SPA_PHOTOS).add(meta);
+          return res.json({ ok: true, id: r.id, tag, at: meta.at });
+        }
+
+        case "spaPhotos": {
+          const petId = String(b.petId || "").slice(0, 40);
+          if (!petId) return res.status(400).json({ error: "Missing petId." });
+          const snap = await db.collection(SPA_PHOTOS).where("petId", "==", petId).limit(200).get();
+          const photos = snap.docs.map((d) => {
+            const x = d.data() || {};
+            return { id: d.id, tag: x.tag || "other", caption: x.caption || "", by: x.by || "", at: x.at || 0, ticketId: x.ticketId || "" };
+          }).sort((a, c) => (c.at || 0) - (a.at || 0));
+          return res.json({ ok: true, photos });
+        }
+
+        case "spaPhoto": {
+          // Stream one photo's bytes as a data URL — keeps the bucket fully
+          // private (public access prevented); only a valid PIN can view it.
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const doc = await db.collection(SPA_PHOTOS).doc(String(b.id)).get();
+          if (!doc.exists) return res.status(404).json({ error: "Photo not found." });
+          const x = doc.data() || {};
+          try {
+            const [buf] = await petBucket().file(x.path).download();
+            return res.json({ ok: true, dataUrl: `data:${x.contentType || "image/jpeg"};base64,${buf.toString("base64")}`, tag: x.tag || "other", caption: x.caption || "" });
+          } catch (e) {
+            console.error("spaPhoto download failed", e && e.message);
+            return res.status(502).json({ error: "Couldn't load the photo." });
+          }
+        }
+
+        case "spaPhotoDelete": {
+          if (!requireRole(actor, "manager", res)) return;
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const ref = db.collection(SPA_PHOTOS).doc(String(b.id));
+          const doc = await ref.get();
+          if (!doc.exists) return res.json({ ok: true });
+          const x = doc.data() || {};
+          try { await petBucket().file(x.path).delete({ ignoreNotFound: true }); } catch (e) { console.error("photo obj delete", e && e.message); }
+          await ref.delete();
+          return res.json({ ok: true });
         }
 
         case "spaContacts": {
@@ -2134,6 +2535,7 @@ exports.pinkPoodleSpa = onRequest(
             phones,
             email: String(c.email || "").trim().slice(0, 120),
             notes: String(c.notes || "").trim().slice(0, 500),
+            rebookEveryWeeks: Math.max(0, Math.min(52, Number(c.rebookEveryWeeks) || 0)),
             updatedAt: now(),
           };
           // Only touch pets when an explicit array is supplied, so an owner-only
@@ -2352,3 +2754,86 @@ exports.pinkPoodleSms = onRequest(
     }
   }
 );
+
+/* ===========================================================================
+ * Scheduled retention worker — runs hourly.
+ *   • Appointment reminders: at ~9–11am ET the day before, texts/emails the
+ *     customer their next-day appointment with a one-tap confirm link.
+ *   • Review boosters: a few hours after pickup, invites happy owners to leave
+ *     a Google/Facebook review (only when enabled + not a hard STOP).
+ * Both are idempotent (guarded by reminderSentAt / reviewAskedAt) so a repeated
+ * run never double-sends.
+ * =========================================================================== */
+exports.pinkPoodleSpaCron = onSchedule(
+  {
+    schedule: "every 1 hours",
+    timeZone: "America/New_York",
+    region: "us-central1",
+    memory: "256MiB",
+    secrets: [SENDGRID_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER],
+  },
+  async () => {
+    const today = todayET();
+    const tomorrow = addDaysIso(today, 1);
+    const hour = etHour();
+    let reminded = 0;
+    let reviewed = 0;
+
+    // ---- Appointment reminders (day-before, morning window) ----
+    if (hour >= 9 && hour <= 11) {
+      try {
+        const snap = await db.collection(SPA_TICKETS).where("apptDate", "==", tomorrow).limit(200).get();
+        for (const d of snap.docs) {
+          const t = d.data() || {};
+          if (t.cancelled || t.voided || (t.step || 0) >= 6 || t.reminderSentAt) continue;
+          const o = t.owner || {};
+          if (!o.phone && !o.email) continue;
+          const when = t.apptTime ? ` at ${t.apptTime}` : "";
+          const pet = (t.pet && t.pet.name) || "your pup";
+          const confirmUrl = `https://pinkpoodle.dog/spa.html?confirm=${encodeURIComponent(t.code || "")}`;
+          const used = await notifyCustomer({
+            phone: o.phone, email: o.email,
+            smsBody: `The Pink Poodle 🐩: reminder — ${pet}'s grooming is tomorrow${when}. Confirm: ${confirmUrl} · Reschedule: text (304) 921-2748.`,
+            emailSubject: `Reminder: ${pet}'s grooming is tomorrow`,
+            emailHtml: `<p>Hi ${esc(o.name || "there")},</p><p>This is a friendly reminder that <b>${esc(pet)}</b> is booked for grooming <b>tomorrow${esc(when)}</b> at The Pink Poodle.</p><p><a href="${esc(confirmUrl)}">Tap here to confirm your appointment</a>. Need to reschedule? Just text (304) 921-2748.</p><p>🩷🐩</p>`,
+          });
+          await d.ref.set({ reminderSentAt: Date.now(), reminderChannels: used }, { merge: true });
+          if (used.length) reminded++;
+        }
+      } catch (e) { console.error("cron reminders failed", e && e.message); }
+    }
+
+    // ---- Review boosters (post-pickup) ----
+    try {
+      const rc = await loadReviewConfig();
+      if (rc.enabled && (rc.googleUrl || rc.facebookUrl)) {
+        const cutoffOld = Date.now() - 3 * 24 * 3600 * 1000; // don't backfill older than 3 days
+        const delayMs = rc.delayHours * 3600 * 1000;
+        const snap = await db.collection(SPA_TICKETS).orderBy("paidAt", "desc").limit(200).get();
+        for (const d of snap.docs) {
+          const t = d.data() || {};
+          if (!t.paid || t.voided || t.reviewAskedAt) continue;
+          const paidMs = t.paidAt && t.paidAt.toMillis ? t.paidAt.toMillis() : 0;
+          if (!paidMs || paidMs < cutoffOld) continue;
+          if (Date.now() - paidMs < delayMs) continue;
+          const o = t.owner || {};
+          if (!o.phone && !o.email) continue;
+          const pet = (t.pet && t.pet.name) || "your pup";
+          const link = rc.googleUrl || rc.facebookUrl;
+          const base = rc.message || `We loved having ${pet} at The Pink Poodle! 🐩 If you have a moment, a quick review means the world:`;
+          const used = await notifyCustomer({
+            phone: o.phone, email: o.email,
+            smsBody: `${base} ${link}`,
+            emailSubject: `How was ${pet}'s spa day?`,
+            emailHtml: `<p>Hi ${esc(o.name || "there")},</p><p>${esc(base)}</p><p>${rc.googleUrl ? `<a href="${esc(rc.googleUrl)}">Leave a Google review</a>` : ""}${rc.googleUrl && rc.facebookUrl ? " &nbsp;·&nbsp; " : ""}${rc.facebookUrl ? `<a href="${esc(rc.facebookUrl)}">Review us on Facebook</a>` : ""}</p><p>Thank you! 🩷</p>`,
+          });
+          await d.ref.set({ reviewAskedAt: Date.now(), reviewChannels: used }, { merge: true });
+          if (used.length) reviewed++;
+        }
+      }
+    } catch (e) { console.error("cron reviews failed", e && e.message); }
+
+    console.log(`pinkPoodleSpaCron: reminded=${reminded} reviewed=${reviewed} hour=${hour}ET`);
+  }
+);
+
