@@ -7,10 +7,20 @@ Marketing website for **The Pink Poodle** — a locally owned luxury pet salon i
 ## About
 Static, single-page site (no build step). Just HTML, CSS, and vanilla JS — fast, secure, and free to host on GitHub Pages.
 
+### Cross-platform / mobile (website · iOS · Android) 📱
+Every page is built to feel native on phones and tablets as well as desktop:
+- **Responsive layout** — `styles.css` breakpoints at 900/820/640/400px; the spa app and generated tenant sites are fluid mobile-first layouts.
+- **Apple (iOS/iPadOS Safari)** — `apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style`, `apple-mobile-web-app-title`, and an `apple-touch-icon` on `index.html`, `spa.html`, and `tip.html` for a clean "Add to Home Screen" experience.
+- **Android (Chrome)** — `theme-color` + web manifests (`site.webmanifest` for the marketing site, `spa.webmanifest` for the app) with separate `any`/`maskable` 192/512 icons for proper adaptive icons and install prompts.
+- **Notch / home-bar safe areas** — `viewport-fit=cover` + `env(safe-area-inset-*)` padding so content never hides under the status bar or home indicator.
+- **Touch ergonomics** — 44–48px minimum tap targets, `touch-action: manipulation`, and a tinted `-webkit-tap-highlight-color`. Pinch-zoom is **enabled everywhere** (no `maximum-scale` lock) for accessibility.
+- **Reduced motion** — animations respect `prefers-reduced-motion`.
+
 | File | Purpose |
 |------|---------|
 | `index.html` | All page content & sections |
 | `styles.css` | Blush/pink upscale theme, responsive layout |
+| `site.webmanifest` | Marketing-site PWA manifest (Android install / home-screen) |
 | `script.js` | Nav, gallery lightbox, scroll reveals, SMS booking composer |
 | `firebase-messaging-sw.js` | Root service worker: web-push (FCM) **and** spa-app offline cache |
 | `assets/` | Photos of Britni, Paris, and freshly-groomed pups |
