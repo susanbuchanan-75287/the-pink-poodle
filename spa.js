@@ -258,15 +258,44 @@
         return '<div class="step ' + cls + '"><div class="dot">' + (i < t.step ? '✓' : STEP_ICONS[i]) + '</div><div class="lbl">' + label + '</div></div>';
       }).join('');
       var canCancel = t.step < 2;
+      var apptLine = t.apptDate ? '<div class="muted" style="margin-top:0.3rem">Scheduled: ' + esc(t.apptDate) + (t.apptTime ? ' at ' + esc(t.apptTime) : '') + (t.confirmed ? ' ✓ confirmed' : ' · awaiting confirmation') + '</div>' : '';
+      var minDate = (function () { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();
+      var reschedHtml = canCancel ? (
+        '<div style="margin-top:0.6rem;display:flex;gap:0.5rem;flex-wrap:wrap">' +
+        '<button class="btn btn--soft btn--sm" id="custResched" type="button">📅 Reschedule</button>' +
+        '<button class="btn btn--soft btn--sm" id="custCancel" type="button">Cancel this request</button>' +
+        '</div>' +
+        '<div class="card hidden" id="reschedForm" style="margin-top:0.6rem">' +
+          '<div class="row2">' +
+            '<div class="field"><label>New date</label><input type="date" id="reschedDate" min="' + esc(minDate) + '" /></div>' +
+            '<div class="field"><label>Time <span class="muted">(optional)</span></label><input type="time" id="reschedTime" /></div>' +
+          '</div>' +
+          '<div class="field"><label>Note <span class="muted">(optional)</span></label><input type="text" id="reschedNote" placeholder="e.g. mornings are best" maxlength="200" /></div>' +
+          '<button class="btn btn--primary btn--block" id="reschedGo" type="button">Request new time →</button>' +
+          '<p class="muted" style="margin:0.4rem 0 0">We\'ll text the salon to confirm your new time. 🩷</p>' +
+        '</div>'
+      ) : '';
       $('trackBody').innerHTML = '<div class="track"><div class="track__code">' + esc(t.petName || 'Your pup') + ' · REF ' + esc(t.code) + '</div>' +
         '<div class="track__status">' + esc(STEPS[t.step] || 'Requested') + (t.step === 5 ? ' 🔔' : '') + '</div>' +
+        apptLine +
         '<div class="steps">' + steps + '</div>' +
-        (canCancel ? '<button class="btn btn--soft btn--sm" id="custCancel" type="button" style="margin-top:0.6rem">Cancel this request</button>' : '') +
+        reschedHtml +
         '</div>' + loyaltyCard;
       var cc = $('custCancel');
       if (cc) cc.addEventListener('click', function () {
         if (!confirm('Cancel this appointment?')) return;
         api('spaCancelByCode', { code: t.code }).then(function () { toast('Cancelled. Text us to rebook 🩷'); doTrack(); }).catch(function (e) { toast(e.message); });
+      });
+      var rb = $('custResched');
+      if (rb) rb.addEventListener('click', function () { var f = $('reschedForm'); if (f) f.classList.toggle('hidden'); });
+      var rg = $('reschedGo');
+      if (rg) rg.addEventListener('click', function () {
+        var d = $('reschedDate').value;
+        if (!d) { toast('Pick a new date ✨'); return; }
+        rg.disabled = true;
+        api('spaRescheduleByCode', { code: t.code, apptDate: d, apptTime: $('reschedTime').value || '', note: $('reschedNote').value || '' })
+          .then(function () { toast('New time requested — we\'ll confirm shortly! 🩷'); doTrack(); })
+          .catch(function (e) { toast(e.message); rg.disabled = false; });
       });
     }).catch(function (err) {
       $('trackBody').innerHTML = '<div class="empty"><div class="big">🔍</div><p>' + esc(err.message || 'No booking found for that code.') + '</p></div>';
@@ -340,10 +369,71 @@
     if (sub === 'clients') loadClients();
     if (sub === 'vaxdue') loadVaxDue();
     if (sub === 'upcoming') loadUpcoming();
+    if (sub === 'waitlist') loadWaitlist();
     if (sub === 'reports') loadReport();
     if (sub === 'fees') loadFees();
   }
   document.querySelectorAll('#staffSubnav .pill').forEach(function (b) { b.addEventListener('click', function () { showSub(b.dataset.sub); }); });
+
+  /* ---------- waitlist (customer join) ---------- */
+  var wlBtn = $('wlJoinBtn');
+  if (wlBtn) wlBtn.addEventListener('click', function () {
+    var pet = $('wlPet').value.trim();
+    var phone = $('wlPhone').value.trim();
+    if (!pet) { toast('Add your pet\'s name ✨'); return; }
+    if (!phone) { toast('Add a mobile number so we can text you 📱'); return; }
+    wlBtn.disabled = true;
+    api('spaWaitlistJoin', {
+      petName: pet, ownerName: $('wlName').value.trim(), phone: phone,
+      prefDates: $('wlPref').value.trim(), company: $('wlHp').value
+    }).then(function () {
+      toast('You\'re on the waitlist! We\'ll text you the moment a spot opens 🩷');
+      $('wlPet').value = ''; $('wlName').value = ''; $('wlPhone').value = ''; $('wlPref').value = '';
+    }).catch(function (e) { toast(e.message); }).then(function () { wlBtn.disabled = false; });
+  });
+
+  /* =================================================================
+     STAFF — waitlist
+     ================================================================= */
+  function loadWaitlist() {
+    $('waitlistBody').innerHTML = '<p class="muted">Loading…</p>';
+    api('spaWaitlist', { pin: staffPin }).then(function (res) {
+      var entries = res.entries || [];
+      if (!entries.length) { $('waitlistBody').innerHTML = '<div class="empty"><div class="big">🎟️</div><p>No one on the waitlist right now.</p></div>'; return; }
+      $('waitlistBody').innerHTML = entries.map(function (e) {
+        var when = e.prefDates ? '<div class="muted">Wants: ' + esc(e.prefDates) + '</div>' : '';
+        var status = e.status === 'notified'
+          ? '<span class="statuschip statuschip--ready">Texted ' + (Number(e.notifyCount) || 1) + '×</span>'
+          : '<span class="statuschip statuschip--go">Waiting</span>';
+        return '<div class="card"><div style="display:flex;justify-content:space-between;align-items:start;gap:0.5rem">' +
+          '<div><strong>' + esc(e.petName || 'Pup') + '</strong>' + (e.ownerName ? ' · ' + esc(e.ownerName) : '') + '<br><a href="tel:' + esc(e.phone) + '">' + esc(e.phone) + '</a>' + when + '</div>' +
+          '<div>' + status + '</div></div>' +
+          '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">' +
+          '<button class="btn btn--primary btn--sm" data-wl-notify="' + esc(e.id) + '" type="button">📲 Text: slot open</button>' +
+          '<button class="btn btn--soft btn--sm" data-wl-booked="' + esc(e.id) + '" type="button">✓ Booked</button>' +
+          '<button class="btn btn--soft btn--sm" data-wl-remove="' + esc(e.id) + '" type="button">✕ Remove</button>' +
+          '</div></div>';
+      }).join('');
+      $('waitlistBody').querySelectorAll('[data-wl-notify]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          btn.disabled = true;
+          api('spaWaitlistNotify', { pin: staffPin, id: btn.dataset.wlNotify }).then(function () { toast('Texted! 📲'); loadWaitlist(); }).catch(function (err) { toast(err.message); btn.disabled = false; });
+        });
+      });
+      $('waitlistBody').querySelectorAll('[data-wl-booked]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          api('spaWaitlistRemove', { pin: staffPin, id: btn.dataset.wlBooked, status: 'booked' }).then(function () { toast('Marked booked ✓'); loadWaitlist(); }).catch(function (err) { toast(err.message); });
+        });
+      });
+      $('waitlistBody').querySelectorAll('[data-wl-remove]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (!confirm('Remove from waitlist?')) return;
+          api('spaWaitlistRemove', { pin: staffPin, id: btn.dataset.wlRemove }).then(function () { loadWaitlist(); }).catch(function (err) { toast(err.message); });
+        });
+      });
+    }).catch(function (e) { $('waitlistBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  var wlRefresh = $('waitlistRefresh'); if (wlRefresh) wlRefresh.addEventListener('click', loadWaitlist);
 
   /* =================================================================
      STAFF — status board

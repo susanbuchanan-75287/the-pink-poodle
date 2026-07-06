@@ -95,6 +95,19 @@
         <div><span class="muted" style="color:#f7c9dd">Estimated</span><br><span class="total__amt" id="totalAmt">$0</span> <small id="totalDur">Select services</small></div>
         <button class="btn btn--gold" id="bookBtn" type="button">Request →</button>
       </div>
+
+      <div class="card" id="waitlistCard" style="margin-top:1.4rem">
+        <h2 style="margin-top:0">Fully booked? Join the waitlist 🎟️</h2>
+        <p class="muted" style="margin-top:-0.2rem">Can't find a time that works? Add your pup and we'll text you the moment a spot opens.</p>
+        <div class="field"><label>Pet's name</label><input type="text" id="wlPet" placeholder="e.g. Paris" autocomplete="off" /></div>
+        <div class="row2">
+          <div class="field"><label>Your name</label><input type="text" id="wlName" placeholder="Your name" autocomplete="name" /></div>
+          <div class="field"><label>Mobile</label><input type="tel" id="wlPhone" placeholder="(304) 555-1234" autocomplete="tel" inputmode="tel" /></div>
+        </div>
+        <div class="field"><label>Days/times that work <span class="muted">(optional)</span></label><input type="text" id="wlPref" placeholder="e.g. weekday mornings, or 7/12–7/15" maxlength="120" /></div>
+        <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Company<input type="text" id="wlHp" tabindex="-1" autocomplete="off" /></label></div>
+        <button class="btn btn--soft btn--block" id="wlJoinBtn" type="button" style="margin-top:0.4rem">Join the waitlist →</button>
+      </div>
     </section>
 
     <!-- ============ TRACK ============ -->
@@ -119,6 +132,7 @@
         <button type="button" class="pill" data-sub="clients">📇 Clients</button>
         <button type="button" class="pill" data-sub="vaxdue">💉 Vaccinations</button>
         <button type="button" class="pill" data-sub="upcoming">📅 Upcoming</button>
+        <button type="button" class="pill" data-sub="waitlist">🎟️ Waitlist</button>
         <button type="button" class="pill" data-sub="reports">📊 Reports</button>
         <button type="button" class="pill" data-sub="fees">⚙️ Fees &amp; PIN</button>
       </div>
@@ -182,6 +196,16 @@
           <button class="btn btn--soft btn--sm" id="upcomingRefresh" type="button">↻ Refresh</button>
         </div>
         <div id="upcomingBody"></div>
+      </div>
+
+      <!-- Waitlist -->
+      <div class="staff__pane hidden" data-sub="waitlist">
+        <h1>Waitlist 🎟️</h1>
+        <p class="lead">When a slot opens, text the next pup in line — first to reply claims it.</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.5rem 0">
+          <button class="btn btn--soft btn--sm" id="waitlistRefresh" type="button">↻ Refresh</button>
+        </div>
+        <div id="waitlistBody"></div>
       </div>
 
       <!-- Reports / KPIs -->

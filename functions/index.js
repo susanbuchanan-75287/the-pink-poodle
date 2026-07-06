@@ -1579,6 +1579,7 @@ exports.pinkPoodleReset = onRequest(
 const SPA_TICKETS = "pp_spa_tickets";
 const SPA_LEDGER = "pp_spa_ledger";
 const SPA_CLIENTS = "pp_spa_clients";
+const SPA_WAITLIST = "pp_spa_waitlist";
 const SPA_PIN_DEFAULT = "0221";
 const SPA_STEPS = ["Requested", "Checked in", "Bathing", "Grooming", "Finishing", "Ready for pickup", "Picked up"];
 const DEFAULT_FEES = [
@@ -1914,8 +1915,19 @@ async function ticketTotalsByPhone() {
 
 
 /* ---- appointment / retention helpers -------------------------------------- */
-function isIsoDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")); }
-function isHhmm(s) { return /^\d{2}:\d{2}$/.test(String(s || "")); }
+function isIsoDate(s) {
+  const str = String(s || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
+  const [y, m, d] = str.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+function isHhmm(s) {
+  const str = String(s || "");
+  if (!/^\d{2}:\d{2}$/.test(str)) return false;
+  const [h, mi] = str.split(":").map(Number);
+  return h >= 0 && h <= 23 && mi >= 0 && mi <= 59;
+}
 function addDaysIso(iso, days) {
   const d = new Date(iso + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
@@ -2108,7 +2120,7 @@ exports.pinkPoodleSpa = onRequest(
     const b = req.body || {};
     const action = b.action;
     const ip = clientIp(req);
-    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode", "spaConfirmByCode", "spaVaxUpload"];
+    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode", "spaConfirmByCode", "spaRescheduleByCode", "spaWaitlistJoin", "spaVaxUpload"];
     let actor = null;
 
     try {
@@ -2266,6 +2278,85 @@ exports.pinkPoodleSpa = onRequest(
           return res.json({ ok: true });
         }
 
+        case "spaRescheduleByCode": {
+          // Customer self-service reschedule using only their REF code. Because
+          // this is a single-groomer salon with no live availability engine, a
+          // reschedule is treated as a customer-PROPOSED new date/time: it moves
+          // the appointment, drops it back to unconfirmed, and texts Britni so
+          // she can re-confirm or adjust. Blocked once the groom is underway.
+          const okr = await checkRateLimit("sparesched", ip, { max: 10, windowMs: 10 * 60 * 1000 });
+          if (!okr) return res.status(429).json({ error: "Too many requests. Please text (304) 921-2748." });
+          if (b.company) return res.json({ ok: true }); // honeypot
+          const codeUp = String(b.code || "").trim().toUpperCase().slice(0, 10);
+          if (!codeUp) return res.status(400).json({ error: "Enter your booking code." });
+          const newDate = String(b.apptDate || "").slice(0, 10);
+          if (!isIsoDate(newDate)) return res.status(400).json({ error: "Pick a new date." });
+          if (newDate < todayET()) return res.status(400).json({ error: "Choose a date in the future." });
+          const newTime = isHhmm(b.apptTime) ? b.apptTime : "";
+          const note = String(b.note || "").slice(0, 200);
+          const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
+          if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
+          const ref = snap.docs[0].ref;
+          let petName = "A pup";
+          try {
+            await db.runTransaction(async (tx) => {
+              const fresh = await tx.get(ref);
+              const t = fresh.data() || {};
+              if (t.cancelled || t.voided) { const e = new Error("That appointment is no longer active — please text the salon."); e.httpCode = 400; throw e; }
+              if ((t.step || 0) >= 2) { const e = new Error("This spa day is already underway — please call the salon."); e.httpCode = 400; throw e; }
+              petName = (t.pet && t.pet.name) || "A pup";
+              tx.set(ref, {
+                apptDate: newDate, apptTime: newTime,
+                requestedDate: newDate, requestedTime: newTime || t.requestedTime || "",
+                confirmed: false,
+                confirmedAt: admin.firestore.FieldValue.delete(), confirmedBy: "",
+                reminderSentAt: admin.firestore.FieldValue.delete(),
+                rescheduledAt: now(), rescheduledBy: "customer", rescheduleNote: note,
+              }, { merge: true });
+            });
+          } catch (e) {
+            if (e && e.httpCode === 400) return res.status(400).json({ error: e.message });
+            throw e;
+          }
+          try {
+            if (twilioReady()) {
+              await sendSms(BRITNI_SMS, `🔄 Reschedule request: ${petName} (REF ${codeUp}) → ${newDate}${newTime ? " " + newTime : ""}.${note ? " Note: " + note : ""} Confirm in the spa app.`);
+            }
+          } catch (e) { console.error("reschedule notify failed", e && e.message); }
+          return res.json({ ok: true, apptDate: newDate, apptTime: newTime });
+        }
+
+        case "spaWaitlistJoin": {
+          // Customer joins the cancellation waitlist (no PIN). Staff get a
+          // one-tap "text this person" when a slot opens.
+          const okr = await checkRateLimit("spawait", ip, { max: 8, windowMs: 15 * 60 * 1000 });
+          if (!okr) return res.status(429).json({ error: "Too many requests. Please text (304) 921-2748." });
+          if (b.company) return res.json({ ok: true }); // honeypot
+          const petName = String(b.petName || "").trim().slice(0, 40);
+          if (!petName) return res.status(400).json({ error: "Add your pet's name." });
+          const phone = normalizePhone(b.phone);
+          if (!phone) return res.status(400).json({ error: "Add a mobile number so we can text you." });
+          const phoneDigits = phone.replace(/[^\d]/g, "");
+          if (phoneDigits.length < 10 || phoneDigits.length > 11) return res.status(400).json({ error: "Enter a valid 10-digit mobile number." });
+          const rec = {
+            petName,
+            ownerName: String(b.ownerName || "").slice(0, 80),
+            phone,
+            email: String(b.email || "").slice(0, 120),
+            prefDates: String(b.prefDates || "").slice(0, 120),
+            services: (Array.isArray(b.services) ? b.services : []).map((s) => String(s).slice(0, 60)).slice(0, 20),
+            note: String(b.note || "").slice(0, 300),
+            status: "waiting",
+            notifyCount: 0,
+            createdAt: now(),
+          };
+          await db.collection(SPA_WAITLIST).add(rec);
+          try {
+            if (twilioReady()) await sendSms(BRITNI_SMS, `📝 New waitlist: ${petName} (${phone})${rec.prefDates ? " wants " + rec.prefDates : ""}. See spa app → Waitlist.`);
+          } catch (e) { console.error("waitlist notify failed", e && e.message); }
+          return res.json({ ok: true });
+        }
+
         /* ---------------- staff (PIN required) ---------------- */
         case "spaBoard": {
           const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(200).get();
@@ -2356,6 +2447,40 @@ exports.pinkPoodleSpa = onRequest(
             try { await db.collection(SPA_CLIENTS).doc(s.clientId).set({ rebookEveryWeeks: weeks, updatedAt: now() }, { merge: true }); } catch (_) {}
           }
           return res.json({ ok: true, id: r.id, code: rec.code, apptDate: nextDate });
+        }
+
+        case "spaWaitlist": {
+          const snap = await db.collection(SPA_WAITLIST).where("status", "in", ["waiting", "notified"]).limit(200).get();
+          const ms = (v) => (v && v.toMillis ? v.toMillis() : 0);
+          const entries = snap.docs
+            .map((d) => Object.assign({ id: d.id }, d.data()))
+            .sort((a, c) => ms(a.createdAt) - ms(c.createdAt));
+          return res.json({ ok: true, entries });
+        }
+
+        case "spaWaitlistNotify": {
+          // Text a waitlisted customer that a slot opened — first to reply wins.
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          if (!twilioReady()) return res.status(400).json({ error: "Texting isn't configured yet." });
+          const ref = db.collection(SPA_WAITLIST).doc(b.id);
+          const d = await ref.get();
+          if (!d.exists) return res.status(404).json({ error: "Waitlist entry not found." });
+          const e = d.data() || {};
+          if (e.status === "booked" || e.status === "removed") return res.status(400).json({ error: "This entry is already closed." });
+          if (!e.phone) return res.status(400).json({ error: "No phone on this entry." });
+          if (await smsHardOptedOut(e.phone)) return res.status(400).json({ error: "This number opted out of texts." });
+          const msg = String(b.message || "").slice(0, 300) ||
+            `🐩 Good news from The Pink Poodle! A grooming spot just opened up${e.prefDates ? " around " + e.prefDates : ""}. Text (304) 921-2748 to claim it for ${e.petName || "your pup"} — first to reply gets it!`;
+          await sendSms(e.phone, msg);
+          await ref.set({ status: "notified", notifiedAt: now(), notifyCount: (Number(e.notifyCount) || 0) + 1 }, { merge: true });
+          return res.json({ ok: true });
+        }
+
+        case "spaWaitlistRemove": {
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const status = b.status === "booked" ? "booked" : "removed";
+          await db.collection(SPA_WAITLIST).doc(b.id).set({ status, closedAt: now() }, { merge: true });
+          return res.json({ ok: true });
         }
 
         case "spaUpcoming": {
