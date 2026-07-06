@@ -899,6 +899,9 @@
   function vaxIntakeChip(vi) {
     if (!vi) return '';
     var st = vi.status || 'pending';
+    if (vi.reverifyNeeded && st !== 'verified' && st !== 'rejected') {
+      return '<span class="appt-badge appt-badge--pending">💉 re-uploaded — re-verify</span>';
+    }
     var label = st === 'verified' ? '💉 Vax ✓'
       : st === 'rejected' ? '💉 Vax rejected'
       : vi.mode === 'upload' ? (vi.hasFile ? '💉 proof — review' : '💉 upload pending')

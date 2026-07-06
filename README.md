@@ -91,6 +91,8 @@ Everything below is live in `pinkPoodleSpa` (Firestore-backed, nothing local):
 
 This batch was hardened over an iterative **v-board review loop** (5 rounds, code-review + design passes) until convergence: fail-open verify → fail-closed; groomer vax visibility added; safety fields surfaced on the board/card/CSV; verified vax persisted to profile; lost-update race closed with a Firestore transaction.
 
+- **Vax proof hardening & retention (v-board round 9).** Three follow-on notes from the grounded review are now closed: (1) a customer **re-upload no longer silently invalidates** a prior verification — it flags `reverifyNeeded` and the board shows a distinct **"💉 re-uploaded — re-verify"** chip (cleared on the next verify/reject); (2) the daily cron **purges the stored proof image 365 days after the appointment** (annual rabies cycle + buffer), deleting the private Storage object while keeping the verification metadata as the audit record (`vaxPurgedAt`); (3) uploaded files are now **byte-sniffed** (`sniffVaxMime` checks JPEG/PNG/WebP/PDF magic bytes) and rejected on any mismatch with the client-supplied type.
+
 ## Virtual Tip Jar 💝 (Venmo + Cash App)
 Clients asked for a cashless way to tip Britni, so the site now has a proper on-brand digital tip jar (no software fees, no card surcharge — tips go straight to the groomer):
 

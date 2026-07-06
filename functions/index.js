@@ -1757,6 +1757,25 @@ const VAX_ACK_TEXT =
  * "upload" (owner is/was providing a document) or "bring" (owner acknowledges
  * bringing a paper copy). Verification is always groomer-driven, never trusted
  * from the client. */
+/**
+ * Byte-sniff an uploaded vaccination file's true type from its magic bytes,
+ * so a spoofed data-URL prefix can't smuggle an unexpected format past us.
+ * Returns the canonical content-type or "" if it matches none of the allowed set.
+ */
+function sniffVaxMime(buf) {
+  if (!buf || buf.length < 12) return "";
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
+      buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a) return "image/png";
+  // WEBP: "RIFF" .... "WEBP"
+  if (buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  // PDF: "%PDF"
+  if (buf.toString("ascii", 0, 4) === "%PDF") return "application/pdf";
+  return "";
+}
+
 function cleanVaxIntake(v) {
   const src = v && typeof v === "object" ? v : {};
   const mode = src.mode === "upload" ? "upload" : "bring";
@@ -2380,6 +2399,11 @@ exports.pinkPoodleSpa = onRequest(
           const contentType = m[1];
           const buf = Buffer.from(m[2], "base64");
           if (!buf.length || buf.length > 8 * 1024 * 1024) return res.status(400).json({ error: "File must be under 8 MB." });
+          // Byte-sniff the real file signature — don't trust the data-URL prefix.
+          const sniffed = sniffVaxMime(buf);
+          if (sniffed !== contentType) {
+            return res.status(400).json({ error: "That file doesn't look like a valid JPEG, PNG, WebP, or PDF." });
+          }
           const ext = contentType === "application/pdf" ? "pdf" : contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
           const fileId = genId();
           const path = `vax/${codeUp}/${fileId}.${ext}`;
@@ -2390,12 +2414,17 @@ exports.pinkPoodleSpa = onRequest(
             return res.status(502).json({ error: "Couldn't store the file. Try again, or bring a copy on groom day." });
           }
           const cur = doc.data().vaxIntake || cleanVaxIntake({ mode: "upload" });
+          const wasVerified = cur.verified === true;
           const vaxIntake = Object.assign({}, cur, {
             mode: "upload",
             hasFile: true,
             file: { path, contentType, name: String(b.name || "").slice(0, 120), at: nowMs() },
-            // A fresh upload always resets to pending re-verification.
+            // A fresh upload always resets to pending re-verification. If the record
+            // was already verified, flag it loudly so staff re-check it instead of a
+            // prior approval silently disappearing.
             verified: false, verifiedAt: 0, verifiedBy: "", status: "pending",
+            reuploadedAt: nowMs(),
+            reverifyNeeded: wasVerified,
           });
           await doc.ref.set({ vaxIntake }, { merge: true });
           return res.json({ ok: true });
@@ -3206,6 +3235,7 @@ exports.pinkPoodleSpa = onRequest(
             verifiedAt: nowMs(),
             verifiedBy: actor.name || "Staff",
             reason: status === "rejected" ? String(b.reason || "").trim().slice(0, 200) : "",
+            reverifyNeeded: false,
           });
           await ref.set({ vaxIntake }, { merge: true });
           // Optionally persist a verified rabies expiration onto the pet's reusable
@@ -3600,6 +3630,7 @@ exports.pinkPoodleSpaCron = onSchedule(
     const hour = etHour();
     let reminded = 0;
     let reviewed = 0;
+    let vaxPurged = 0;
 
     // ---- Appointment reminders (day-before, morning window) ----
     if (hour >= 9 && hour <= 11) {
@@ -3662,7 +3693,33 @@ exports.pinkPoodleSpaCron = onSchedule(
       }
     } catch (e) { console.error("cron reviews failed", e && e.message); }
 
-    console.log(`pinkPoodleSpaCron: reminded=${reminded} reviewed=${reviewed} hour=${hour}ET`);
+    // ---- Vaccination-proof retention (privacy) ----
+    // Rabies-record images are sensitive PII. Keep them long enough to cover the
+    // annual rabies cycle + a buffer, then purge the stored file while retaining
+    // the (non-image) verification metadata as the audit record.
+    try {
+      const VAX_RETENTION_DAYS = 365;
+      const cutoff = new Date(Date.now() - VAX_RETENTION_DAYS * 24 * 3600 * 1000)
+        .toISOString().slice(0, 10);
+      const snap = await db.collection(SPA_TICKETS)
+        .where("apptDate", "<", cutoff).orderBy("apptDate").limit(50).get();
+      for (const d of snap.docs) {
+        const t = d.data() || {};
+        const vi = t.vaxIntake;
+        if (t.vaxPurgedAt || !vi || !vi.file || !vi.file.path) continue;
+        try {
+          await petBucket().file(vi.file.path).delete({ ignoreNotFound: true });
+        } catch (e) {
+          console.error("vax purge storage failed", e && e.message);
+          continue;
+        }
+        const newVi = Object.assign({}, vi, { hasFile: false, file: null });
+        await d.ref.set({ vaxIntake: newVi, vaxPurgedAt: Date.now() }, { merge: true });
+        vaxPurged++;
+      }
+    } catch (e) { console.error("cron vax purge failed", e && e.message); }
+
+    console.log(`pinkPoodleSpaCron: reminded=${reminded} reviewed=${reviewed} vaxPurged=${vaxPurged} hour=${hour}ET`);
   }
 );
 
