@@ -26,6 +26,19 @@ const $ = (id) => document.getElementById(id);
 function setStatus(el, msg, kind) { el.className = 'status show ' + (kind || 'info'); el.innerHTML = msg; }
 function clr(el) { el.className = 'status'; el.innerHTML = ''; }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function toast(msg) {
+  let el = $('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.style.cssText = 'position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);z-index:200;background:#3a2230;color:#fff;padding:.75rem 1rem;border-radius:999px;box-shadow:var(--shadow);font:600 .86rem var(--sans);max-width:min(92vw,520px);text-align:center;opacity:0;transition:opacity .2s ease';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.style.opacity = '0'; }, 4200);
+}
 
 function api(action, payload = {}) {
   return fetch(ENDPOINT, {
@@ -136,7 +149,7 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
   document.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== t.dataset.tab));
   if (t.dataset.tab === 'gallery') loadGallery();
   if (t.dataset.tab === 'customers') loadCustomers();
-  if (t.dataset.tab === 'messages') { loadHistory(); loadPushCount(); }
+  if (t.dataset.tab === 'messages') { loadHistory(); loadPushCount(); loadSmsCount(); }
   if (t.dataset.tab === 'staff') loadStaff();
   if (t.dataset.tab === 'square') loadSquare();
 }));
@@ -151,6 +164,7 @@ function initConsole() {
   $('pickupTemplate').value = settings.pickupTemplate || DEFAULTS.pickupTemplate;
   $('promoTemplate').value = settings.promoTemplate || DEFAULTS.promoTemplate;
   $('invoiceTemplate').value = settings.invoiceTemplate || DEFAULTS.invoiceTemplate;
+  loadSmsCount();
 }
 
 /* ================= GALLERY ================= */
@@ -285,13 +299,15 @@ function renderCustomers() {
     const div = document.createElement('div');
     div.className = 'cust';
     const dogs = (c.dogs || []).map((d) => '<span class="chip">🐾 ' + esc(d.name) + (d.breed ? ' · ' + esc(d.breed) : '') + '</span>').join('');
+    const textOptedOut = !!c.smsOptOutAt || c.smsOptIn === false;
+    const textBadge = textOptedOut ? '<span class="chip chip--muted">opted out of texts</span>' : '';
     const bal = c.balance > 0 ? '<span class="bal bal--owed">Owes $' + c.balance.toFixed(2) + '</span>' : '<span class="bal bal--clear">Paid up</span>';
     const phoneList = (c.phones && c.phones.length) ? c.phones : (c.phone ? [{ type: 'Mobile', number: c.phone }] : []);
     const phoneLinks = phoneList.map((p) => '<a href="tel:' + esc(normPhone(p.number)) + '">📞 ' + esc(p.number) + '<span class="muted"> ' + esc(p.type || '') + '</span></a>').join(' · ');
     div.innerHTML =
       '<div class="cust__top"><div><div class="cust__name">' + esc(c.name || 'Unnamed') + '</div>' +
       '<div class="cust__contact">' + phoneLinks + (c.email ? (phoneLinks ? ' · ' : '') + '<a href="mailto:' + esc(c.email) + '">✉️</a>' : '') + '</div></div>' + bal + '</div>' +
-      (dogs ? '<div class="chips">' + dogs + '</div>' : '') +
+      (dogs || textBadge ? '<div class="chips">' + dogs + textBadge + '</div>' : '') +
       '<div class="cust__actions">' +
       '<button class="mini" data-a="pickup">💬 Ready</button>' +
       '<button class="mini" data-a="promo">🎀 Promo</button>' +
@@ -344,6 +360,11 @@ function openEditor(c) {
   $('custModalTitle').textContent = c.id ? 'Edit customer' : 'New customer';
   $('cId').value = c.id || '';
   $('cName').value = c.name || ''; $('cEmail').value = c.email || ''; $('cAddress').value = c.address || '';
+  $('cSmsOptIn').checked = c.id ? (!c.smsOptOutAt && c.smsOptIn !== false) : true;
+  $('cSmsOptNote').dataset.hardOpt = c.smsOptOutAt ? '1' : '';
+  $('cSmsOptNote').textContent = c.smsOptOutAt
+    ? 'This customer opted out by text on ' + String(c.smsOptOutAt).slice(0, 10) + '. Check the box only if they explicitly asked to opt back in.'
+    : (c.smsOptIn === false ? 'This customer is marked not OK for promo texts.' : 'Promo blasts only go to opted-in customers.');
   $('phoneRows').innerHTML = '';
   const ph = (c.phones && c.phones.length) ? c.phones
     : (c.phone ? [{ type: 'Mobile', number: c.phone }] : [{ type: 'Mobile' }, { type: 'Mobile 2' }, { type: 'Home' }]);
@@ -372,9 +393,10 @@ $('saveCustomer').addEventListener('click', async () => {
   const customer = {
     id: $('cId').value || undefined,
     name: $('cName').value.trim(), phones, email: $('cEmail').value.trim(), address: $('cAddress').value.trim(),
-    dogs, notes: editNotes,
+    dogs, notes: editNotes, smsOptIn: $('cSmsOptIn').checked,
   };
   if (!customer.name && !phones.length) return setStatus($('custModalStatus'), 'Add at least a name or phone.', 'err');
+  if ($('cSmsOptNote').dataset.hardOpt === '1' && customer.smsOptIn && !confirm('This customer previously opted out by text. Re-enable promo texts only if they explicitly asked to opt back in.\n\nMark OK to text promotions?')) return;
   setStatus($('custModalStatus'), '<span class="spin"></span>Saving…', 'info');
   try { await api('crmSave', { customer }); custModal.classList.remove('open'); loadCustomers(); }
   catch (err) { setStatus($('custModalStatus'), '❌ ' + err.message, 'err'); }
@@ -432,6 +454,9 @@ $('sendEmail').addEventListener('click', () => {
 });
 
 /* ================= MESSAGES TAB ================= */
+let smsEligibleCount = 0;
+let smsTwilioReady = false;
+
 $('blastEmail').addEventListener('click', async () => {
   const body = $('blastBody').value.trim();
   if (!body) return setStatus($('blastStatus'), 'Write your message first.', 'err');
@@ -471,6 +496,45 @@ $('blastPush').addEventListener('click', async () => {
     else setStatus($('blastStatus'), '✅ Pushed to ' + r.sent + ' device' + (r.sent === 1 ? '' : 's') + (r.failed ? ' (' + r.failed + ' failed/expired)' : '') + ' & logged.', 'ok');
     loadPushCount();
   } catch (err) { setStatus($('blastStatus'), '❌ ' + err.message, 'err'); }
+});
+async function loadSmsCount() {
+  if (!$('smsCount')) return;
+  try {
+    const r = await api('smsCount');
+    smsEligibleCount = Number(r.count) || 0;
+    smsTwilioReady = !!r.twilioReady;
+    $('smsCount').textContent = smsEligibleCount;
+    $('blastSmsNow').disabled = !smsTwilioReady || !smsEligibleCount;
+    $('smsReady').textContent = smsEligibleCount + ' customer' + (smsEligibleCount === 1 ? '' : 's') + ' can receive a text. ' +
+      (smsTwilioReady ? 'Twilio text sending is ready.' : "Text sending isn't set up yet — using the device draft instead.");
+  } catch (err) {
+    smsEligibleCount = 0;
+    smsTwilioReady = false;
+    $('smsCount').textContent = '0';
+    $('blastSmsNow').disabled = true;
+    $('smsReady').textContent = 'Text count unavailable: ' + err.message;
+  }
+}
+$('blastSmsNow').addEventListener('click', async () => {
+  const body = $('blastBody').value.trim();
+  if (!body) return setStatus($('blastStatus'), 'Write your message first.', 'err');
+  if (!smsTwilioReady) return setStatus($('blastStatus'), "Text sending isn't set up yet — using the device draft instead.", 'err');
+  if (!smsEligibleCount) return setStatus($('blastStatus'), 'No opted-in customers can receive a text right now.', 'err');
+  if (!confirm('Send this text to ' + smsEligibleCount + ' opted-in customers? Standard rates apply.')) return;
+  $('blastSmsNow').disabled = true;
+  setStatus($('blastStatus'), '<span class="spin"></span>Sending texts…', 'info');
+  try {
+    const r = await api('smsBlast', { body });
+    const msg = 'Texts sent: ' + (r.sent || 0) + ', failed: ' + (r.failed || 0) + ', skipped: ' + (r.skipped || 0) + '.';
+    toast(msg);
+    setStatus($('blastStatus'), '✅ ' + esc(msg), 'ok');
+    loadHistory();
+    loadSmsCount();
+  } catch (err) {
+    toast(err.message);
+    setStatus($('blastStatus'), '❌ ' + err.message, 'err');
+    loadSmsCount();
+  }
 });
 async function loadPushCount() {
   try { const r = await api('pushCount'); if ($('pushCount')) $('pushCount').textContent = r.count || 0; } catch (_) {}
@@ -561,9 +625,14 @@ function fmtTime(t) {
   return h + (m[2] === '00' ? '' : ':' + m[2]) + ap;
 }
 // Opt-in availability: returns {start,end} if the stylist works that date, else null.
+// Precedence: single-day override > closed range (holiday/vacation) > recurring open > off.
 function availFor(s, iso, wd) {
   const ov = (s.dateHours || {})[iso];
   if (ov) return ov.on ? { start: ov.start, end: ov.end } : null;
+  const closed = s.closedRanges || [];
+  for (let j = 0; j < closed.length; j++) {
+    if (closed[j].from && closed[j].to && closed[j].from <= iso && iso <= closed[j].to) return null;
+  }
   const rules = s.recurring || [];
   for (let i = 0; i < rules.length; i++) {
     const r = rules[i];
@@ -579,6 +648,9 @@ function hoursToday(s) {
   const d = new Date();
   return availFor(s, isoLocal(d), d.getDay());
 }
+function roleLabel(role) {
+  return { owner: 'Owner', manager: 'Manager', stylist: 'Stylist' }[role] || 'Stylist';
+}
 
 function renderStaff() {
   const box = $('staffList');
@@ -589,10 +661,11 @@ function renderStaff() {
     const hrs = s.active ? hoursToday(s) : null;
     const status = !s.active ? '<span class="chip">Hidden</span>'
       : (hrs ? '<span class="chip">In ' + esc(fmtTime(hrs.start) + '–' + fmtTime(hrs.end)) + '</span>' : '<span class="chip">Off today</span>');
+    const pin = s.hasPin ? '<span class="chip">PIN set</span>' : '<span class="chip chip--muted">No PIN</span>';
     return `<div class="staff${s.active ? '' : ' staff__off'}">
       <div class="staff__av">${esc(initial)}</div>
       <div class="staff__main">
-        <div class="staff__name">${esc(s.name)} ${status}</div>
+        <div class="staff__name">${esc(s.name)} ${status} <span class="chip">${esc(roleLabel(s.accessRole))}</span> ${pin}</div>
         <div class="staff__role">${esc(s.role || '')}${s.phone ? ' · ' + esc(s.phone) : ''}</div>
       </div>
       <div class="staff__actions">
@@ -606,6 +679,14 @@ function renderStaff() {
 }
 
 /* ---- stylist editor ---- */
+function setStaffPinControls(s, id) {
+  $('sfPin').value = '';
+  $('sfPinState').textContent = id
+    ? (s.hasPin ? 'Personal PIN is set.' : 'No personal PIN set.')
+    : 'Save this stylist before setting a personal PIN.';
+  $('staffSetPin').disabled = !id;
+  $('staffClearPin').disabled = !id || !s.hasPin;
+}
 function openStaffModal(id) {
   const s = staffCache.find((x) => x.id === id) || {};
   $('staffModalTitle').textContent = id ? ('Edit ' + (s.name || 'stylist')) : 'New stylist';
@@ -613,11 +694,13 @@ function openStaffModal(id) {
   $('sfName').value = s.name || '';
   $('sfRole').value = s.role || '';
   $('sfPhone').value = s.phone || '';
+  $('sfAccessRole').value = s.accessRole || 'stylist';
   $('sfTags').value = s.tags || '';
   $('sfActive').checked = s.active !== false;
   $('sfSquareId').value = s.squareTeamMemberId || '';
   $('sfSmsFrom').value = (s.sms && s.sms.from) || '';
   $('sfSmsEnabled').checked = !!(s.sms && s.sms.enabled);
+  setStaffPinControls(s, id);
   $('staffDelete').style.display = id ? '' : 'none';
   clr($('staffModalStatus'));
   $('staffModal').classList.add('open');
@@ -631,6 +714,7 @@ $('staffSave').addEventListener('click', async () => {
     id: $('sfId').value || undefined,
     name: $('sfName').value.trim(),
     role: $('sfRole').value.trim(),
+    accessRole: $('sfAccessRole').value,
     phone: $('sfPhone').value.trim(),
     tags: $('sfTags').value.trim(),
     active: $('sfActive').checked,
@@ -653,19 +737,60 @@ $('staffDelete').addEventListener('click', async () => {
   try { await api('staffDelete', { id }); closeStaffModal(); loadStaff(); }
   catch (err) { setStatus($('staffModalStatus'), '❌ ' + err.message, 'err'); }
 });
+async function saveStaffPin(clear) {
+  const id = $('sfId').value;
+  if (!id) return setStatus($('staffModalStatus'), 'Save this stylist before setting a personal PIN.', 'err');
+  const payload = { staffId: id, role: $('sfAccessRole').value };
+  if (clear) {
+    if (!confirm('Clear this stylist\'s personal spa-console PIN?')) return;
+    payload.clear = true;
+  } else {
+    const pin = $('sfPin').value.trim();
+    if (!/^\d{4,8}$/.test(pin)) return setStatus($('staffModalStatus'), 'PIN must be 4–8 digits.', 'err');
+    payload.newPin = pin;
+  }
+  $('staffSetPin').disabled = true;
+  $('staffClearPin').disabled = true;
+  setStatus($('staffModalStatus'), '<span class="spin"></span>' + (clear ? 'Clearing PIN…' : 'Setting PIN…'), 'info');
+  try {
+    await api('staffSetPin', payload);
+    toast(clear ? 'Personal PIN cleared.' : 'Personal PIN set.');
+    await loadStaff();
+    const updated = staffCache.find((x) => x.id === id) || {};
+    setStaffPinControls(updated, id);
+    setStatus($('staffModalStatus'), '✅ ' + (clear ? 'Personal PIN cleared.' : 'Personal PIN set.'), 'ok');
+  } catch (err) {
+    toast(err.message);
+    setStatus($('staffModalStatus'), '❌ ' + err.message, 'err');
+    const current = staffCache.find((x) => x.id === id) || {};
+    setStaffPinControls(current, id);
+  }
+}
+$('staffSetPin').addEventListener('click', () => saveStaffPin(false));
+$('staffClearPin').addEventListener('click', () => saveStaffPin(true));
 
 /* ---- schedule (opt-in availability with hours + recurring blocks) ---- */
 let schedState = null; // { id, name, recurring:[], dateHours:{}, viewY, viewM, editIso }
 
 function isoOf(y, m, d) { return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
 
-// Effective availability for a date inside the editor (per-date override beats recurring).
+// Effective availability for a date inside the editor. Returns {start,end}, or
+// null (off). Also exposes the closing reason via schedClosedReason().
 function schedAvail(iso, wd) {
   const ov = schedState.dateHours[iso];
   if (ov) return ov.on ? { start: ov.start, end: ov.end } : null;
+  if (schedClosedReason(iso) !== null) return null;
   for (let i = 0; i < schedState.recurring.length; i++) {
     const r = schedState.recurring[i];
     if (r.from && r.to && r.from <= iso && iso <= r.to && (r.days || []).indexOf(wd) >= 0) return { start: r.start, end: r.end };
+  }
+  return null;
+}
+// Returns the closed-range reason string (may be '') if iso falls in a closed range, else null.
+function schedClosedReason(iso) {
+  for (let j = 0; j < schedState.closedRanges.length; j++) {
+    const c = schedState.closedRanges[j];
+    if (c.from && c.to && c.from <= iso && iso <= c.to) return c.reason || '';
   }
   return null;
 }
@@ -679,6 +804,7 @@ function openSchedModal(id) {
   schedState = {
     id, name: s.name,
     recurring: (s.recurring || []).map((r) => ({ days: (r.days || []).slice(), start: r.start || '09:00', end: r.end || '17:00', from: r.from || '', to: r.to || '' })),
+    closedRanges: (s.closedRanges || []).map((c) => ({ from: c.from || '', to: c.to || '', reason: c.reason || '' })),
     dateHours: dh,
     viewY: nowD.getFullYear(), viewM: nowD.getMonth(),
     editIso: null,
@@ -686,6 +812,7 @@ function openSchedModal(id) {
   $('schedTitle').textContent = s.name + ' — schedule';
   document.querySelector('#schedModal .cal__dow').innerHTML = DOW.map((d) => `<span>${d.slice(0, 2)}</span>`).join('');
   renderRecur();
+  renderClosed();
   hideDayEditor();
   renderCal();
   clr($('schedStatus'));
@@ -731,6 +858,30 @@ function renderRecur() {
   }));
 }
 
+/* --- closed ranges (holidays / vacations) --- */
+function renderClosed() {
+  const box = $('closedRows');
+  if (!schedState.closedRanges.length) { box.innerHTML = '<p class="muted" style="margin:.2rem 0">No closures yet — add holidays or vacation dates here to close them even during normal open days.</p>'; return; }
+  box.innerHTML = schedState.closedRanges.map((c, i) => `<div class="recur closed">
+      <div class="recur__row">
+        <label>From <input type="date" data-ci="${i}" data-k="from" value="${esc(c.from)}"></label>
+        <label>To <input type="date" data-ci="${i}" data-k="to" value="${esc(c.to)}"></label>
+        <button type="button" class="mini recur__del" data-cdel="${i}">Remove</button>
+      </div>
+      <div class="recur__row">
+        <label style="flex:1">Reason <input type="text" data-ci="${i}" data-k="reason" maxlength="80" placeholder="e.g. Christmas, vacation" value="${esc(c.reason)}" style="flex:1;min-width:140px"></label>
+      </div>
+    </div>`).join('');
+  box.querySelectorAll('input[data-ci]').forEach((inp) => inp.addEventListener('change', () => {
+    schedState.closedRanges[Number(inp.dataset.ci)][inp.dataset.k] = inp.value;
+    renderCal();
+  }));
+  box.querySelectorAll('[data-cdel]').forEach((b) => b.addEventListener('click', () => {
+    schedState.closedRanges.splice(Number(b.dataset.cdel), 1);
+    renderClosed(); renderCal();
+  }));
+}
+
 /* --- month calendar --- */
 function renderCal() {
   const y = schedState.viewY, m = schedState.viewM;
@@ -745,10 +896,13 @@ function renderCal() {
     const wd = new Date(y, m, d).getDay();
     const past = iso < todayIso;
     const av = schedAvail(iso, wd);
+    const closedReason = !av ? schedClosedReason(iso) : null; // null unless in a closed range
+    const isClosedRange = closedReason !== null && !schedState.dateHours[iso];
     const sel = schedState.editIso === iso ? ' cal__cell--sel' : '';
-    const cls = 'cal__cell' + (av ? ' cal__cell--on' : ' cal__cell--off') + (past ? ' cal__cell--past' : '') + sel;
-    const hrs = av ? `<span class="cal__hrs">${fmtTime(av.start)}–${fmtTime(av.end)}</span>` : '';
-    cells += `<div class="${cls}"${past ? '' : ` data-day="${iso}" data-wd="${wd}"`}><span>${d}</span>${hrs}</div>`;
+    const cls = 'cal__cell' + (av ? ' cal__cell--on' : ' cal__cell--off') + (isClosedRange ? ' cal__cell--closed' : '') + (past ? ' cal__cell--past' : '') + sel;
+    const hrs = av ? `<span class="cal__hrs">${fmtTime(av.start)}–${fmtTime(av.end)}</span>` : (isClosedRange ? `<span class="cal__hrs">${esc(closedReason || 'Closed')}</span>` : '');
+    const title = isClosedRange ? ` title="Closed${closedReason ? ': ' + esc(closedReason) : ''}"` : '';
+    cells += `<div class="${cls}"${title}${past ? '' : ` data-day="${iso}" data-wd="${wd}"`}><span>${d}</span>${hrs}</div>`;
   }
   $('calGrid').innerHTML = cells;
   $('calGrid').querySelectorAll('[data-day]').forEach((c) => c.addEventListener('click', () => openDayEditor(c.dataset.day, Number(c.dataset.wd))));
@@ -764,7 +918,12 @@ function openDayEditor(iso, wd) {
   $('deStart').value = (av && av.start) || '09:00';
   $('deEnd').value = (av && av.end) || '17:00';
   $('deClear').style.display = ov ? '' : 'none';
-  const src = ov ? 'a specific override' : (av ? 'a recurring block' : 'off (default)');
+  const closedReason = schedClosedReason(iso);
+  let src;
+  if (ov) src = 'a specific day override';
+  else if (av) src = 'a recurring block';
+  else if (closedReason !== null) src = 'closed' + (closedReason ? ' (' + closedReason + ')' : '') + ' — a holiday/vacation range';
+  else src = 'off (default)';
   $('deSource').textContent = 'Currently: ' + src + '.';
   $('dayEditor').style.display = '';
   renderCal();
@@ -775,6 +934,11 @@ function hideDayEditor() { if (schedState) schedState.editIso = null; $('dayEdit
 $('addRecur').addEventListener('click', () => {
   schedState.recurring.push({ days: [], start: '09:00', end: '17:00', from: isoOf(schedState.viewY, schedState.viewM, 1), to: '' });
   renderRecur(); renderCal();
+});
+$('addClosed').addEventListener('click', () => {
+  const first = isoOf(schedState.viewY, schedState.viewM, 1);
+  schedState.closedRanges.push({ from: first, to: first, reason: '' });
+  renderClosed(); renderCal();
 });
 $('deApply').addEventListener('click', () => {
   const iso = schedState.editIso; if (!iso) return;
@@ -804,6 +968,7 @@ $('schedSave').addEventListener('click', async () => {
     await api('staffAvailability', {
       id: schedState.id,
       recurring: schedState.recurring,
+      closedRanges: schedState.closedRanges,
       dateHours: schedState.dateHours,
     });
     closeSchedModal();

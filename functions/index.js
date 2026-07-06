@@ -207,15 +207,22 @@ function staffOut(doc) {
     order: typeof d.order === "number" ? d.order : 99,
     // Square linkage (used later when slot-booking is layered on).
     squareTeamMemberId: d.squareTeamMemberId || "",
+    // Console access role + whether a personal PIN is set (hash never leaves
+    // the server). Britni's row seeds as "owner"; others default to "stylist".
+    accessRole: ROLE_RANK[String(d.accessRole || "").toLowerCase()] ? String(d.accessRole).toLowerCase() : "stylist",
+    hasPin: !!(d.pinHash && d.pinSalt),
     // Per-stylist SMS scaffold — NOT wired to sending yet (dormant).
     sms: {
       enabled: !!(d.sms && d.sms.enabled),
       from: (d.sms && d.sms.from) || "",
     },
     // Availability model (opt-in): everyone is OFF by default.
-    //  • recurring: [{days:[0-6], start:"HH:MM", end:"HH:MM", from:"YYYY-MM-DD", to:"YYYY-MM-DD"}]
-    //  • dateHours: { "YYYY-MM-DD": {on:true, start, end} | {on:false} }  (per-date override; beats recurring)
+    //  • recurring: [{days:[0-6], start:"HH:MM", end:"HH:MM", from:"YYYY-MM-DD", to:"YYYY-MM-DD"}] — normal open days
+    //  • closedRanges: [{from:"YYYY-MM-DD", to:"YYYY-MM-DD", reason}] — holidays/vacations (beat recurring)
+    //  • dateHours: { "YYYY-MM-DD": {on:true, start, end} | {on:false} } — single-day override (beats everything)
+    // Precedence: dateHours override > closedRanges > recurring > off.
     recurring: Array.isArray(d.recurring) ? d.recurring : [],
+    closedRanges: Array.isArray(d.closedRanges) ? d.closedRanges : [],
     dateHours: (d.dateHours && typeof d.dateHours === "object") ? d.dateHours : {},
   };
 }
@@ -302,13 +309,15 @@ function customerOut(doc) {
     dogs: Array.isArray(d.dogs) ? d.dogs : [],
     notes: Array.isArray(d.notes) ? d.notes : [],
     balance: typeof d.balance === "number" ? d.balance : 0,
+    smsOptIn: d.smsOptIn !== false,
+    smsOptOutAt: d.smsOptOutAt ? (d.smsOptOutAt.toDate ? d.smsOptOutAt.toDate().toISOString() : d.smsOptOutAt) : null,
     lastContacted: d.lastContacted ? d.lastContacted.toDate().toISOString() : null,
   };
 }
 
 exports.pinkPoodleApi = onRequest(
   {
-    secrets: [GH_TOKEN, PP_ADMIN_KEY, PP_FB_PAGE_ID, PP_FB_PAGE_TOKEN, SENDGRID_API_KEY, SQUARE_ACCESS_TOKEN],
+    secrets: [GH_TOKEN, PP_ADMIN_KEY, PP_FB_PAGE_ID, PP_FB_PAGE_TOKEN, SENDGRID_API_KEY, SQUARE_ACCESS_TOKEN, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER],
     cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/],
     memory: "512MiB",
     timeoutSeconds: 120,
@@ -437,6 +446,7 @@ exports.pinkPoodleApi = onRequest(
               ts: n.ts || new Date().toISOString(),
             })),
             balance: typeof c.balance === "number" ? c.balance : 0,
+            smsOptIn: c.smsOptIn !== false,
             updatedAt: now(),
           };
           let id = c.id;
@@ -552,6 +562,51 @@ exports.pinkPoodleApi = onRequest(
           return res.json({ ok: true, sent, failed, count: snap.size });
         }
 
+        /* ---------------- SMS promo blast (Twilio, opt-in only) ---------------- */
+        case "smsCount": {
+          // How many customers can legally receive a promo text right now.
+          const snap = await db.collection(CUSTOMERS).limit(2000).get();
+          let eligible = 0;
+          snap.docs.forEach((d) => {
+            const c = d.data() || {};
+            if (c.smsOptIn === false || c.smsOptOutAt) return;
+            if (normalizePhone(c.phone)) eligible++;
+          });
+          return res.json({ ok: true, count: eligible, twilioReady: twilioReady() });
+        }
+
+        case "smsBlast": {
+          const text = String(body.body || "").trim().slice(0, 320);
+          if (!text) return res.status(400).json({ error: "Write your message first." });
+          if (!twilioReady()) {
+            return res.status(400).json({ error: "Text sending isn't configured yet. Add your Twilio number & keys, or use the device-draft blast." });
+          }
+          // Only registered A2P/10DLC traffic should run through this path; the
+          // footer gives the legally-required opt-out instruction on every send.
+          const footer = " Reply STOP to opt out.";
+          const bodyText = (text.length + footer.length > 320 ? text.slice(0, 320 - footer.length) : text) + footer;
+          const snap = await db.collection(CUSTOMERS).limit(2000).get();
+          const seen = new Set();
+          let sent = 0, failed = 0, skipped = 0;
+          for (const d of snap.docs) {
+            const c = d.data() || {};
+            if (c.smsOptIn === false || c.smsOptOutAt) { skipped++; continue; }
+            const to = normalizePhone(c.phone);
+            if (!to || seen.has(to)) { skipped++; continue; }
+            seen.add(to);
+            try {
+              await sendSms(to, bodyText);
+              sent++;
+              await db.collection(MESSAGES).add({ customerId: d.id, type: "promo", channel: "sms", body: bodyText, amount: null, ts: now() }).catch(() => {});
+              await d.ref.set({ lastContacted: now() }, { merge: true }).catch(() => {});
+            } catch (err) {
+              failed++;
+              console.error("smsBlast send failed", to.slice(0, 6), err && err.message);
+            }
+          }
+          return res.json({ ok: true, sent, failed, skipped });
+        }
+
         /* ---------------- Admin passphrase ---------------- */
         case "changePassphrase": {
           const np = String(body.newPassphrase || "").trim();
@@ -584,6 +639,7 @@ exports.pinkPoodleApi = onRequest(
               batch.set(ref, {
                 name: s.name, role: s.role, tags: s.tags, phone: s.phone, order: s.order,
                 active: true, squareTeamMemberId: "",
+                accessRole: s.order === 0 ? "owner" : "stylist",
                 sms: { enabled: false, from: "" },
                 weeklyOff: [], datesOff: [], datesOn: [],
                 createdAt: now(), updatedAt: now(),
@@ -606,6 +662,7 @@ exports.pinkPoodleApi = onRequest(
             active: s.active !== false,
             order: typeof s.order === "number" ? s.order : 99,
             squareTeamMemberId: (s.squareTeamMemberId || "").slice(0, 60),
+            accessRole: ROLE_RANK[String(s.accessRole || "").toLowerCase()] ? String(s.accessRole).toLowerCase() : "stylist",
             // Scaffold only — a per-stylist "from" number for future Twilio use.
             sms: {
               enabled: !!(s.sms && s.sms.enabled),
@@ -650,6 +707,12 @@ exports.pinkPoodleApi = onRequest(
             const to = dateRe.test(String(r.to)) ? String(r.to) : "";
             return { days, start, end, from, to };
           }).filter((r) => r.days.length && r.from && r.to && r.from <= r.to && r.end > r.start);
+          // Closed ranges: holidays / vacations (beat recurring open blocks).
+          const closedRanges = (Array.isArray(body.closedRanges) ? body.closedRanges : []).slice(0, 60).map((r) => ({
+            from: dateRe.test(String(r.from)) ? String(r.from) : "",
+            to: dateRe.test(String(r.to)) ? String(r.to) : "",
+            reason: String(r.reason || "").trim().slice(0, 80),
+          })).filter((r) => r.from && r.to && r.from <= r.to);
           // Per-date overrides: {on:true,start,end} to open a specific day, {on:false} to close it.
           const dateHours = {};
           const src = (body.dateHours && typeof body.dateHours === "object") ? body.dateHours : {};
@@ -664,11 +727,48 @@ exports.pinkPoodleApi = onRequest(
           });
           await db.collection(STAFF).doc(body.id).set({
             recurring,
+            closedRanges,
             dateHours,
             updatedAt: now(),
           }, { merge: true });
           const saved = await db.collection(STAFF).doc(body.id).get();
           return res.json({ ok: true, staff: staffOut(saved) });
+        }
+
+        case "staffSetPin": {
+          // Passphrase-gated (owner) management of a stylist's personal spa-console
+          // PIN + access role. Mirrors the spa-side spaStaffPin, but reachable
+          // from the Salon Console where the roster already lives. clear:true
+          // removes the PIN (that stylist then can't sign in with their own PIN).
+          const staffId = String(body.staffId || "").slice(0, 60);
+          if (!staffId) return res.status(400).json({ error: "Pick a stylist." });
+          const ref = db.collection(STAFF).doc(staffId);
+          const doc = await ref.get();
+          if (!doc.exists) return res.status(404).json({ error: "Stylist not found." });
+          const role = ROLE_RANK[String(body.role || "").toLowerCase()] ? String(body.role).toLowerCase() : "stylist";
+          if (body.clear === true) {
+            await ref.set({ pinHash: "", pinSalt: "", accessRole: role, updatedAt: now() }, { merge: true });
+            return res.json({ ok: true, cleared: true, staff: staffOut(await ref.get()) });
+          }
+          const np = String(body.newPin || "").trim();
+          if (!/^\d{4,8}$/.test(np)) return res.status(400).json({ error: "PIN must be 4–8 digits." });
+          const spaPin = await spaPinValue();
+          if (timingSafeEqualStr(np, spaPin)) return res.status(400).json({ error: "That's the shared salon PIN — choose a different personal PIN." });
+          const crypto = require("crypto");
+          const all = await db.collection(STAFF).get();
+          for (const s2 of all.docs) {
+            if (s2.id === staffId) continue;
+            const sd = s2.data() || {};
+            if (!sd.pinHash || !sd.pinSalt) continue;
+            const cand = Buffer.from(hashPass(np, sd.pinSalt).hash, "hex");
+            const stored = Buffer.from(sd.pinHash, "hex");
+            if (cand.length === stored.length && crypto.timingSafeEqual(cand, stored)) {
+              return res.status(400).json({ error: "Another stylist already uses that PIN." });
+            }
+          }
+          const { salt, hash } = hashPass(np);
+          await ref.set({ pinHash: hash, pinSalt: salt, accessRole: role, updatedAt: now() }, { merge: true });
+          return res.json({ ok: true, staff: staffOut(await ref.get()) });
         }
 
         /* ---------------- Square Appointments ---------------- */
@@ -829,6 +929,27 @@ function normalizePhone(p) {
   return "+" + digits;
 }
 
+/**
+ * Normalize a list of {type,number} phones (dedup by normalized number,
+ * preserve order). Falls back to a single legacy `phone` string. Returns
+ * { phones, primary } where primary is the canonical tap-to-call number.
+ */
+function cleanPhones(list, legacy) {
+  const out = [];
+  const seen = new Set();
+  (Array.isArray(list) ? list : []).forEach((p) => {
+    const number = normalizePhone(p && p.number);
+    if (!number || seen.has(number)) return;
+    seen.add(number);
+    out.push({ type: String((p && p.type) || "Mobile").slice(0, 20), number });
+  });
+  if (!out.length && legacy) {
+    const n = normalizePhone(legacy);
+    if (n) out.push({ type: "Mobile", number: n });
+  }
+  return { phones: out.slice(0, 8), primary: (out[0] && out[0].number) || "" };
+}
+
 async function sendEmail({ to, subject, html, text, replyTo }) {
   const sgMail = require("@sendgrid/mail");
   sgMail.setApiKey(SENDGRID_API_KEY.value().trim());
@@ -900,17 +1021,27 @@ async function notifyPassphraseChanged(how) {
  * whenever they change — an explicit "cc me the passphrase/PIN" convenience.
  * Goes ONLY to the fixed BACKUP_ADMIN_EMAIL, never an arbitrary recipient. */
 async function emailCredentialCopy({ passphrase, pin, how }) {
+  // Canary prefix: the email shows each credential with this decoy prefix in
+  // front. Susan strips "Rex-Loves-Susan-" to get the real value; anyone who
+  // copies the emailed string verbatim (e.g. after an inbox compromise) will
+  // fail to log in, so a leaked copy is useless without the shared secret.
+  const CANARY = "Rex-Loves-Susan-";
   const items = [];
-  if (passphrase) items.push({ label: "Admin passphrase", value: passphrase });
-  if (pin) items.push({ label: "Stylist spa PIN", value: pin });
+  if (passphrase) items.push({ label: "Admin passphrase", value: CANARY + passphrase });
+  if (pin) items.push({ label: "Stylist spa PIN", value: CANARY + pin });
   if (!items.length) return;
   const when = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+  const heads =
+    `IMPORTANT: each value below is shown with the decoy prefix "${CANARY}". ` +
+    `Remove that prefix to get the real credential — the prefix is NOT part of it. ` +
+    `This way a copied/leaked value won't work.`;
   await sendEmail({
     to: BACKUP_ADMIN_EMAIL,
     subject: "🔑 Your Pink Poodle credential copy (keep private)",
     text:
       `As requested, here ${items.length > 1 ? "are" : "is"} the Pink Poodle credential${items.length > 1 ? "s" : ""} ` +
       `(${how}) as of ${when} ET:\n\n` +
+      `${heads}\n\n` +
       items.map((i) => `${i.label}: ${i.value}`).join("\n") +
       `\n\nKeep this email private. If you didn't make this change, reset it right away at https://pinkpoodle.dog/admin.html.`,
     html:
@@ -918,6 +1049,8 @@ async function emailCredentialCopy({ passphrase, pin, how }) {
       `<h2 style="color:#b83372">🔑 Your Pink Poodle credential copy</h2>` +
       `<p>As requested, here ${items.length > 1 ? "are" : "is"} the credential${items.length > 1 ? "s" : ""} ` +
       `(<strong>${esc(how)}</strong>) as of <strong>${esc(when)} ET</strong>:</p>` +
+      `<p style="background:#fff3d6;border:1px solid #e8c766;border-radius:8px;padding:8px 10px;font-size:13px;color:#6a4b00">` +
+      `⚠️ Each value is shown with the decoy prefix <code>${esc(CANARY)}</code>. <strong>Remove that prefix</strong> to get the real credential — the prefix is not part of it. A copied/leaked value won't work.</p>` +
       `<ul style="font-size:15px">` +
       items.map((i) => `<li>${esc(i.label)}: <code style="background:#fbe6ef;padding:2px 6px;border-radius:5px">${esc(i.value)}</code></li>`).join("") +
       `</ul>` +
@@ -936,6 +1069,13 @@ async function sendOwnerSms(bodyText) {
   const twilio = require("twilio");
   const client = twilio(TWILIO_ACCOUNT_SID.value().trim(), TWILIO_AUTH_TOKEN.value().trim());
   await client.messages.create({ to: BRITNI_SMS, from: TWILIO_FROM_NUMBER.value().trim(), body: bodyText });
+}
+
+/** Send a single SMS to any recipient (used by the opt-in promo blast). */
+async function sendSms(to, bodyText) {
+  const twilio = require("twilio");
+  const client = twilio(TWILIO_ACCOUNT_SID.value().trim(), TWILIO_AUTH_TOKEN.value().trim());
+  return client.messages.create({ to, from: TWILIO_FROM_NUMBER.value().trim(), body: bodyText });
 }
 
 /**
@@ -1328,6 +1468,53 @@ async function verifySpaPin(pin) {
   return timingSafeEqualStr(p, await spaPinValue());
 }
 
+/* ---- Staff identity + roles (spa console) ---------------------------------
+ * The shared spa PIN still works and maps to the "owner" role (Britni), so
+ * nothing breaks on day one. In addition, each stylist can be given their own
+ * PIN + accessRole. Every non-public spa request resolves the caller to an
+ * actor {role,name,id,kind} and sensitive actions are gated by role.
+ *   Roles (rank): owner(3) > manager(2) > stylist(1).
+ * ------------------------------------------------------------------------- */
+const ROLE_RANK = { owner: 3, manager: 2, stylist: 1 };
+function normRole(r) {
+  const v = String(r || "").toLowerCase();
+  return ROLE_RANK[v] ? v : "stylist";
+}
+
+/** Resolve a PIN to an actor, or null if it matches nothing. */
+async function resolveSpaActor(pin) {
+  const p = String(pin || "").trim();
+  if (!p) return null;
+  // 1) Shared spa PIN → owner (backward compatible).
+  if (timingSafeEqualStr(p, await spaPinValue())) {
+    return { kind: "shared", role: "owner", name: "Salon", id: "" };
+  }
+  // 2) Per-stylist PIN (hashed) — timing-safe compare against each stylist.
+  try {
+    const crypto = require("crypto");
+    const snap = await db.collection(STAFF).get();
+    for (const d of snap.docs) {
+      const s = d.data() || {};
+      if (s.active === false || !s.pinHash || !s.pinSalt) continue;
+      const cand = Buffer.from(hashPass(p, s.pinSalt).hash, "hex");
+      const stored = Buffer.from(s.pinHash, "hex");
+      if (cand.length === stored.length && crypto.timingSafeEqual(cand, stored)) {
+        return { kind: "staff", role: normRole(s.accessRole), name: s.name || "Stylist", id: d.id };
+      }
+    }
+  } catch (e) {
+    console.error("resolveSpaActor failed", e && e.message);
+  }
+  return null;
+}
+
+/** Gate: ensures actor is at least `min` role, else sends 403 and returns false. */
+function requireRole(actor, min, res) {
+  if (actor && (ROLE_RANK[actor.role] || 0) >= (ROLE_RANK[min] || 99)) return true;
+  res.status(403).json({ error: "That action needs a manager or owner PIN." });
+  return false;
+}
+
 async function loadFees() {
   try {
     const snap = await db.collection("pp_config").doc("spaFees").get();
@@ -1349,9 +1536,80 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+/* ---- Vaccinations (structured, multi-type) --------------------------------
+ * Each pet carries vaccinations:[{type,expires,verifiedAt,notes}]. Status is
+ * always computed from `expires` vs today (never trusted from the client) so a
+ * stale stored badge can't mask an expired shot. Required types are
+ * configurable (pp_config/spaVax); anything required but absent reads "missing".
+ * ------------------------------------------------------------------------- */
+const DEFAULT_REQUIRED_VAX = ["Rabies"];
+const KNOWN_VAX = ["Rabies", "DHPP", "Bordetella", "Canine Influenza", "Leptospirosis"];
+const VAX_SOON_DAYS = 30;
+
+function cleanVax(v) {
+  v = v || {};
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  return {
+    type: String(v.type || "").trim().slice(0, 40),
+    expires: dateRe.test(String(v.expires || "")) ? v.expires : "",
+    verifiedAt: dateRe.test(String(v.verifiedAt || "")) ? v.verifiedAt : "",
+    notes: String(v.notes || "").trim().slice(0, 160),
+  };
+}
+
+/** Worst-case status for one vaccination record given today's ISO date. */
+function vaxRecordStatus(rec, today) {
+  if (!rec.expires) return "unknown";
+  if (rec.expires < today) return "expired";
+  const soon = new Date(today + "T00:00:00Z");
+  soon.setUTCDate(soon.getUTCDate() + VAX_SOON_DAYS);
+  const soonIso = soon.toISOString().slice(0, 10);
+  return rec.expires <= soonIso ? "expiring" : "ok";
+}
+
+/** Roll a pet's vaccination list + required set into one worst-case status. */
+function petVaxStatus(pet, required, today) {
+  today = today || todayET();
+  required = Array.isArray(required) && required.length ? required : DEFAULT_REQUIRED_VAX;
+  const vax = Array.isArray(pet && pet.vaccinations) ? pet.vaccinations : [];
+  const byType = {};
+  vax.forEach((v) => { if (v.type) byType[v.type.toLowerCase()] = v; });
+  const order = { missing: 4, expired: 3, expiring: 2, unknown: 1, ok: 0 };
+  let worst = "ok";
+  const bump = (s) => { if (order[s] > order[worst]) worst = s; };
+  required.forEach((t) => {
+    const rec = byType[String(t).toLowerCase()];
+    if (!rec) bump("missing");
+    else bump(vaxRecordStatus(rec, today));
+  });
+  // Non-required shots on file still surface expiry, but never as "missing".
+  vax.forEach((v) => { if (v.type) bump(vaxRecordStatus(v, today)); });
+  return worst;
+}
+
+async function loadRequiredVax() {
+  try {
+    const snap = await db.collection("pp_config").doc("spaVax").get();
+    if (snap.exists && Array.isArray(snap.data().required) && snap.data().required.length) {
+      return snap.data().required.map((s) => String(s).slice(0, 40)).filter(Boolean).slice(0, 20);
+    }
+  } catch (e) {
+    console.error("loadRequiredVax failed", e && e.message);
+  }
+  return DEFAULT_REQUIRED_VAX.slice();
+}
+
 /** Sanitize a single pet profile (staff CRM). */
 function cleanPet(p) {
   p = p || {};
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  // Migrate the legacy single rabiesExpires field into the structured list the
+  // first time a pet is touched, so no historical rabies date is ever lost.
+  let vaccinations = Array.isArray(p.vaccinations) ? p.vaccinations.map(cleanVax).filter((v) => v.type).slice(0, 20) : [];
+  const legacyRabies = dateRe.test(String(p.rabiesExpires || "")) ? p.rabiesExpires : "";
+  if (legacyRabies && !vaccinations.some((v) => v.type.toLowerCase() === "rabies")) {
+    vaccinations.unshift(cleanVax({ type: "Rabies", expires: legacyRabies }));
+  }
   return {
     id: String(p.id || "").slice(0, 40) || genId(),
     name: String(p.name || "").trim().slice(0, 40),
@@ -1359,18 +1617,23 @@ function cleanPet(p) {
     size: String(p.size || "").trim().slice(0, 40),
     temperament: String(p.temperament || "").trim().slice(0, 60),
     notes: String(p.notes || "").trim().slice(0, 400),
-    rabiesExpires: /^\d{4}-\d{2}-\d{2}$/.test(String(p.rabiesExpires || "")) ? p.rabiesExpires : "",
+    // Kept for backward compatibility / one-line display; the source of truth
+    // is now vaccinations[].
+    rabiesExpires: (vaccinations.find((v) => v.type.toLowerCase() === "rabies") || {}).expires || "",
     vaxNotes: String(p.vaxNotes || "").trim().slice(0, 200),
+    vaccinations,
   };
 }
 
 /** Shape a client doc for the CRM (with computed visits/spent merged in later). */
 function clientOut(doc) {
   const d = doc.data() || {};
+  const { phones, primary } = cleanPhones(d.phones, d.phone);
   return {
     id: doc.id,
     name: d.name || "",
-    phone: d.phone || "",
+    phone: primary || d.phone || "",
+    phones,
     email: d.email || "",
     notes: d.notes || "",
     pets: Array.isArray(d.pets) ? d.pets.map(cleanPet) : [],
@@ -1388,20 +1651,22 @@ function clientOut(doc) {
 async function upsertClientFromBooking(rec) {
   const owner = rec.owner || {};
   const phone = owner.phone || "";
-  if (!phone) return; // no reliable key — skip (still lives on the ticket)
+  if (!phone) return ""; // no reliable key — skip (still lives on the ticket)
   try {
     const snap = await db.collection(SPA_CLIENTS).where("phone", "==", phone).limit(1).get();
     const petName = (rec.pet && rec.pet.name) || "";
     if (snap.empty) {
-      await db.collection(SPA_CLIENTS).add({
+      const ref = await db.collection(SPA_CLIENTS).add({
         name: owner.name || "",
         phone,
+        phones: [{ type: "Mobile", number: phone }],
         email: owner.email || "",
         notes: "",
         pets: petName ? [cleanPet({ name: petName, breed: rec.pet.breed, size: rec.pet.size, notes: rec.pet.notes })] : [],
         createdAt: now(),
         updatedAt: now(),
       });
+      return ref.id;
     } else {
       const ref = snap.docs[0].ref;
       const d = snap.docs[0].data() || {};
@@ -1411,10 +1676,13 @@ async function upsertClientFromBooking(rec) {
       const patch = { updatedAt: now(), pets };
       if (!d.name && owner.name) patch.name = owner.name;
       if (!d.email && owner.email) patch.email = owner.email;
+      if (!Array.isArray(d.phones) || !d.phones.length) patch.phones = [{ type: "Mobile", number: phone }];
       await ref.set(patch, { merge: true });
+      return ref.id;
     }
   } catch (e) {
     console.error("upsertClientFromBooking failed", e && e.message);
+    return "";
   }
 }
 
@@ -1425,7 +1693,7 @@ async function ticketTotalsByPhone() {
     const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(2000).get();
     snap.docs.forEach((d) => {
       const x = d.data();
-      if (x.cancelled) return;
+      if (x.cancelled || x.voided) return;
       const phone = (x.owner && x.owner.phone) || "";
       if (!phone) return;
       const ft = Number(x.finalTotal) || 0;
@@ -1454,6 +1722,7 @@ function spaTicketPublic(doc) {
     step,
     status: SPA_STEPS[step] || "Requested",
     cancelled: !!d.cancelled,
+    voided: !!d.voided,
     requestedDate: d.requestedDate || "",
     requestedTime: d.requestedTime || "",
   };
@@ -1473,6 +1742,8 @@ function spaTicketFull(doc) {
     discount: d.discount || 0,
     finalTotal: d.finalTotal || 0,
     cancelReason: d.cancelReason || "",
+    voidReason: d.voidReason || "",
+    clientId: d.clientId || "",
     createdAt: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0,
   });
 }
@@ -1497,6 +1768,27 @@ async function postLedger({ date, memo, ref, lines }) {
   return r.id;
 }
 
+/**
+ * Post a reversing (contra) entry for an existing ledger record: same accounts,
+ * dr/cr swapped. This keeps the journal immutable — nothing is ever edited or
+ * deleted; a correction is a new, balanced, offsetting record that references
+ * the original. Returns the new entry id (or null if the original is missing).
+ */
+async function reverseLedger(ledgerId, memo) {
+  if (!ledgerId) return null;
+  try {
+    const snap = await db.collection(SPA_LEDGER).doc(ledgerId).get();
+    if (!snap.exists) return null;
+    const orig = snap.data() || {};
+    const lines = (orig.lines || []).map((l) => ({ acct: l.acct, dr: l.cr || 0, cr: l.dr || 0 }));
+    if (!lines.length) return null;
+    return await postLedger({ memo: memo || `Reversal of ${orig.memo || ledgerId}`, ref: orig.ref, lines });
+  } catch (e) {
+    console.error("reverseLedger failed", e && e.message);
+    return null;
+  }
+}
+
 exports.pinkPoodleSpa = onRequest(
   {
     cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/],
@@ -1512,10 +1804,12 @@ exports.pinkPoodleSpa = onRequest(
     const action = b.action;
     const ip = clientIp(req);
     const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode"];
+    let actor = null;
 
     try {
       if (PUBLIC.indexOf(action) < 0) {
-        if (!(await verifySpaPin(b.pin))) {
+        actor = await resolveSpaActor(b.pin);
+        if (!actor) {
           const ok = await checkRateLimit("spaauth", ip, { max: 10, windowMs: 10 * 60 * 1000 });
           if (!ok) return res.status(429).json({ error: "Too many attempts. Try again later." });
           return res.status(401).json({ error: "Wrong PIN." });
@@ -1526,6 +1820,11 @@ exports.pinkPoodleSpa = onRequest(
         /* ---------------- public / customer ---------------- */
         case "spaMenu":
           return res.json({ ok: true, fees: await loadFees() });
+
+        case "spaLogin":
+          // Confirms the PIN and returns who it belongs to + their role, so the
+          // console can hide privileged controls from a stylist-level PIN.
+          return res.json({ ok: true, actor: { name: actor.name, role: actor.role, id: actor.id } });
 
         case "spaBook": {
           const ok = await checkRateLimit("spabook", ip, { max: 8, windowMs: 10 * 60 * 1000 });
@@ -1555,7 +1854,8 @@ exports.pinkPoodleSpa = onRequest(
             createdAt: now(),
           };
           const r = await db.collection(SPA_TICKETS).add(rec);
-          await upsertClientFromBooking(rec);
+          const clientId = await upsertClientFromBooking(rec);
+          if (clientId) await r.set({ clientId }, { merge: true });
           return res.json({ ok: true, code: rec.code, id: r.id });
         }
 
@@ -1579,7 +1879,7 @@ exports.pinkPoodleSpa = onRequest(
             if (hist) {
               hist.docs.forEach((d) => {
                 const x = d.data();
-                if (x.cancelled) return;
+                if (x.cancelled || x.voided) return;
                 const ft = Number(x.finalTotal) || 0;
                 if (x.paid || ft > 0) { loyalty.visits++; loyalty.spent += ft; }
               });
@@ -1607,7 +1907,7 @@ exports.pinkPoodleSpa = onRequest(
         case "spaBoard": {
           const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(200).get();
           const today = todayET();
-          const tickets = snap.docs.map(spaTicketFull).filter((t) => t.date === today || (t.step < 6 && !t.cancelled));
+          const tickets = snap.docs.map(spaTicketFull).filter((t) => !t.voided && (t.date === today || (t.step < 6 && !t.cancelled)));
           return res.json({ ok: true, tickets, steps: SPA_STEPS });
         }
 
@@ -1662,9 +1962,37 @@ exports.pinkPoodleSpa = onRequest(
           return res.json({ ok: true });
         }
 
+        case "spaVoid": {
+          if (!requireRole(actor, "manager", res)) return;
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const ref = db.collection(SPA_TICKETS).doc(b.id);
+          const doc = await ref.get();
+          if (!doc.exists) return res.status(404).json({ error: "Ticket not found." });
+          const t = doc.data();
+          if (t.voided) return res.json({ ok: true, already: true });
+          const reason = String(b.reason || "Voided").slice(0, 120);
+          // Reverse any money this ticket posted — the payment and any
+          // cancellation/no-show fee — so the books self-correct without ever
+          // deleting history.
+          const reversals = [];
+          if (t.ledgerId) { const id = await reverseLedger(t.ledgerId, `Void — ${(t.pet && t.pet.name) || "Client"} (${t.code || ""})`); if (id) reversals.push(id); }
+          if (t.cancelLedgerId) { const id = await reverseLedger(t.cancelLedgerId, `Void fee — ${(t.pet && t.pet.name) || "Client"} (${t.code || ""})`); if (id) reversals.push(id); }
+          await ref.set({ voided: true, voidReason: reason, voidReversals: reversals, voidedAt: now() }, { merge: true });
+          return res.json({ ok: true, reversals: reversals.length });
+        }
+
         case "spaDelete": {
           if (!b.id) return res.status(400).json({ error: "Missing id." });
-          await db.collection(SPA_TICKETS).doc(b.id).delete();
+          const ref = db.collection(SPA_TICKETS).doc(b.id);
+          const doc = await ref.get();
+          if (!doc.exists) return res.json({ ok: true });
+          const t = doc.data() || {};
+          // Never hard-delete a ticket that touched the books — that would break
+          // the immutable ledger. Force those through "Void" instead.
+          if (t.paid || t.ledgerId || t.finalTotal > 0 || t.cancelLedgerId) {
+            return res.status(400).json({ error: "This ticket has payment history — use Void, which reverses the entries and keeps the record." });
+          }
+          await ref.delete();
           return res.json({ ok: true });
         }
 
@@ -1681,6 +2009,7 @@ exports.pinkPoodleSpa = onRequest(
         }
 
         case "spaLedgerAdd": {
+          if (!requireRole(actor, "manager", res)) return;
           const amount = Math.max(0, Number(b.amount) || 0);
           if (!amount) return res.status(400).json({ error: "Enter an amount." });
           const debit = String(b.debit || "").slice(0, 40);
@@ -1694,6 +2023,7 @@ exports.pinkPoodleSpa = onRequest(
           return res.json({ ok: true, fees: await loadFees() });
 
         case "spaFeesSave": {
+          if (!requireRole(actor, "manager", res)) return;
           const fees = (Array.isArray(b.fees) ? b.fees : []).map((f) => ({ label: String(f.label || "").slice(0, 40), amount: Math.max(0, Number(f.amount) || 0) })).filter((f) => f.label).slice(0, 40);
           await db.collection("pp_config").doc("spaFees").set({ fees, updatedAt: now() });
           return res.json({ ok: true, fees });
@@ -1704,6 +2034,7 @@ exports.pinkPoodleSpa = onRequest(
           const map = {};
           snap.docs.forEach((d) => {
             const x = d.data();
+            if (x.voided) return;
             const o = x.owner || {};
             const key = (o.phone || o.email || o.name || "").toLowerCase();
             if (!key) return;
@@ -1718,42 +2049,89 @@ exports.pinkPoodleSpa = onRequest(
         /* ---------------- Client CRM (staff) ---------------- */
         case "spaClients": {
           const totals = await ticketTotalsByPhone();
+          const required = await loadRequiredVax();
+          const today = todayET();
+          const stamp = (client) => {
+            client.pets = (client.pets || []).map((p) => Object.assign({}, p, { vaxStatus: petVaxStatus(p, required, today) }));
+            const order = { missing: 4, expired: 3, expiring: 2, unknown: 1, ok: 0 };
+            client.vaxStatus = client.pets.reduce((w, p) => (order[p.vaxStatus] > order[w] ? p.vaxStatus : w), "ok");
+            return client;
+          };
           const snap = await db.collection(SPA_CLIENTS).orderBy("updatedAt", "desc").limit(1000).get();
           const savedPhones = {};
           const clients = snap.docs.map((d) => {
             const c = clientOut(d);
             const t = totals[c.phone] || {};
-            savedPhones[c.phone] = true;
-            return Object.assign(c, { visits: t.visits || 0, spent: t.spent || 0, lastVisit: t.lastVisit || 0 });
+            // Any of a client's numbers should suppress a duplicate derived row.
+            (c.phones.length ? c.phones.map((p) => p.number) : [c.phone]).forEach((n) => { if (n) savedPhones[n] = true; });
+            return stamp(Object.assign(c, { visits: t.visits || 0, spent: t.spent || 0, lastVisit: t.lastVisit || 0 }));
           });
           // Fold in owners seen only on tickets (legacy / not yet saved as a client).
           const derived = {};
           const tsnap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(2000).get();
           tsnap.docs.forEach((d) => {
             const x = d.data();
+            if (x.voided) return;
             const o = x.owner || {};
             const phone = o.phone || "";
             if (!phone || savedPhones[phone]) return;
             if (!derived[phone]) {
               const t = totals[phone] || {};
-              derived[phone] = { id: "", name: o.name || "", phone, email: o.email || "", notes: "", pets: [], visits: t.visits || 0, spent: t.spent || 0, lastVisit: t.lastVisit || 0, derived: true };
+              derived[phone] = { id: "", name: o.name || "", phone, phones: [{ type: "Mobile", number: phone }], email: o.email || "", notes: "", pets: [], visits: t.visits || 0, spent: t.spent || 0, lastVisit: t.lastVisit || 0, derived: true };
             }
             const pn = (x.pet && x.pet.name) || "";
             if (pn && !derived[phone].pets.some((p) => (p.name || "").toLowerCase() === pn.toLowerCase())) {
               derived[phone].pets.push(cleanPet({ name: pn, breed: x.pet.breed, size: x.pet.size, notes: x.pet.notes }));
             }
           });
-          return res.json({ ok: true, clients: clients.concat(Object.values(derived)) });
+          const all = clients.concat(Object.values(derived).map(stamp));
+          return res.json({ ok: true, clients: all, requiredVax: required, knownVax: KNOWN_VAX });
+        }
+
+        case "spaVaxConfig":
+          return res.json({ ok: true, required: await loadRequiredVax(), known: KNOWN_VAX });
+
+        case "spaVaxConfigSave": {
+          if (!requireRole(actor, "manager", res)) return;
+          const required = (Array.isArray(b.required) ? b.required : []).map((s) => String(s).trim().slice(0, 40)).filter(Boolean).slice(0, 20);
+          await db.collection("pp_config").doc("spaVax").set({ required, updatedAt: now() }, { merge: true });
+          return res.json({ ok: true, required });
+        }
+
+        case "spaVaxDue": {
+          // Reminder list: every pet whose required/expiring shots need attention.
+          const required = await loadRequiredVax();
+          const today = todayET();
+          const snap = await db.collection(SPA_CLIENTS).orderBy("updatedAt", "desc").limit(1000).get();
+          const rows = [];
+          snap.docs.forEach((d) => {
+            const c = clientOut(d);
+            (c.pets || []).forEach((p) => {
+              const st = petVaxStatus(p, required, today);
+              if (st === "ok") return;
+              const byType = {};
+              (p.vaccinations || []).forEach((v) => { if (v.type) byType[v.type.toLowerCase()] = v; });
+              const details = required.map((t) => {
+                const rec = byType[t.toLowerCase()];
+                return { type: t, expires: (rec && rec.expires) || "", status: rec ? vaxRecordStatus(rec, today) : "missing" };
+              }).filter((x) => x.status !== "ok");
+              rows.push({ clientId: c.id, client: c.name, phone: c.phone, pet: p.name, status: st, details });
+            });
+          });
+          const rank = { missing: 4, expired: 3, expiring: 2, unknown: 1 };
+          rows.sort((a, z) => (rank[z.status] || 0) - (rank[a.status] || 0));
+          return res.json({ ok: true, due: rows, required });
         }
 
         case "spaClientSave": {
           const c = b.client || {};
           const name = String(c.name || "").trim().slice(0, 80);
-          const phone = normalizePhone(c.phone);
-          if (!name && !phone) return res.status(400).json({ error: "Add a name or phone number." });
+          const { phones, primary } = cleanPhones(c.phones, c.phone);
+          if (!name && !primary) return res.status(400).json({ error: "Add a name or phone number." });
           const data = {
             name,
-            phone,
+            phone: primary,
+            phones,
             email: String(c.email || "").trim().slice(0, 120),
             notes: String(c.notes || "").trim().slice(0, 500),
             updatedAt: now(),
@@ -1762,8 +2140,8 @@ exports.pinkPoodleSpa = onRequest(
           // save (or a truncated payload) can't silently wipe vaccination records.
           if (Array.isArray(c.pets)) data.pets = c.pets.map(cleanPet).slice(0, 20);
           let id = String(c.id || "").slice(0, 60);
-          if (!id && phone) {
-            const ex = await db.collection(SPA_CLIENTS).where("phone", "==", phone).limit(1).get();
+          if (!id && primary) {
+            const ex = await db.collection(SPA_CLIENTS).where("phone", "==", primary).limit(1).get();
             if (!ex.empty) id = ex.docs[0].id;
           }
           let ref;
@@ -1779,6 +2157,7 @@ exports.pinkPoodleSpa = onRequest(
         }
 
         case "spaClientDelete": {
+          if (!requireRole(actor, "manager", res)) return;
           if (!b.id) return res.status(400).json({ error: "Missing id." });
           await db.collection(SPA_CLIENTS).doc(b.id).delete();
           return res.json({ ok: true });
@@ -1813,9 +2192,46 @@ exports.pinkPoodleSpa = onRequest(
         }
 
         case "spaSetPin": {
+          if (!requireRole(actor, "owner", res)) return;
           const np = String(b.newPin || "").trim();
           if (!/^\d{4,8}$/.test(np)) return res.status(400).json({ error: "PIN must be 4–8 digits." });
           await db.collection("pp_config").doc("spa").set({ pin: np, updatedAt: now() }, { merge: true });
+          return res.json({ ok: true });
+        }
+
+        case "spaStaffPin": {
+          // Owner assigns/updates a stylist's personal PIN + access role, or
+          // clears their PIN (clear:true). Enforces PIN uniqueness so two people
+          // can't collide, and blocks reusing the shared salon PIN.
+          if (!requireRole(actor, "owner", res)) return;
+          const staffId = String(b.staffId || "").slice(0, 60);
+          if (!staffId) return res.status(400).json({ error: "Pick a stylist." });
+          const ref = db.collection(STAFF).doc(staffId);
+          const doc = await ref.get();
+          if (!doc.exists) return res.status(404).json({ error: "Stylist not found." });
+          const role = normRole(b.role);
+          if (b.clear === true) {
+            await ref.set({ pinHash: "", pinSalt: "", accessRole: role, updatedAt: now() }, { merge: true });
+            return res.json({ ok: true, cleared: true });
+          }
+          const np = String(b.newPin || "").trim();
+          if (!/^\d{4,8}$/.test(np)) return res.status(400).json({ error: "PIN must be 4–8 digits." });
+          if (timingSafeEqualStr(np, await spaPinValue())) return res.status(400).json({ error: "That's the shared salon PIN — choose a different personal PIN." });
+          // Reject collision with another stylist's PIN.
+          const crypto = require("crypto");
+          const all = await db.collection(STAFF).get();
+          for (const s2 of all.docs) {
+            if (s2.id === staffId) continue;
+            const sd = s2.data() || {};
+            if (!sd.pinHash || !sd.pinSalt) continue;
+            const cand = Buffer.from(hashPass(np, sd.pinSalt).hash, "hex");
+            const stored = Buffer.from(sd.pinHash, "hex");
+            if (cand.length === stored.length && crypto.timingSafeEqual(cand, stored)) {
+              return res.status(400).json({ error: "Another stylist already uses that PIN." });
+            }
+          }
+          const { salt, hash } = hashPass(np);
+          await ref.set({ pinHash: hash, pinSalt: salt, accessRole: role, updatedAt: now() }, { merge: true });
           return res.json({ ok: true });
         }
 
@@ -1873,6 +2289,66 @@ exports.pinkPoodlePush = onRequest(
     } catch (e) {
       console.error("push error", e && e.message);
       return res.status(500).json({ error: "Something went wrong. Please try again." });
+    }
+  }
+);
+
+/* ==========================================================================
+ * pinkPoodleSms — Twilio inbound SMS webhook (compliance: STOP / START / HELP).
+ * Twilio POSTs form-encoded {From, Body}. We honor opt-out/opt-in against the
+ * customer records (pp_customers) matched by phone, and always answer with
+ * TwiML. Set this URL as the "A Message Comes In" webhook on the Twilio number.
+ * Requires A2P 10DLC registration before any marketing traffic goes live.
+ * ========================================================================== */
+exports.pinkPoodleSms = onRequest(
+  {
+    secrets: [TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER],
+    region: "us-central1",
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    invoker: "public",
+  },
+  async (req, res) => {
+    const twiml = (msg) => {
+      res.set("Content-Type", "text/xml");
+      res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><Response>${msg ? `<Message>${esc(msg)}</Message>` : ""}</Response>`);
+    };
+    try {
+      const from = normalizePhone((req.body && req.body.From) || "");
+      const text = String((req.body && req.body.Body) || "").trim().toUpperCase();
+      if (!from) return twiml("");
+      const STOP = ["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "QUIT", "END"];
+      const START = ["START", "YES", "UNSTOP"];
+      // Match every customer record carrying this phone (primary or in phones[]).
+      const [byPrimary, all] = await Promise.all([
+        db.collection(CUSTOMERS).where("phone", "==", from).limit(50).get(),
+        db.collection(CUSTOMERS).limit(2000).get(),
+      ]);
+      const refs = new Map();
+      byPrimary.docs.forEach((d) => refs.set(d.id, d.ref));
+      all.docs.forEach((d) => {
+        const ph = Array.isArray(d.data().phones) ? d.data().phones : [];
+        if (ph.some((p) => normalizePhone(p.number) === from)) refs.set(d.id, d.ref);
+      });
+
+      if (STOP.includes(text)) {
+        await Promise.all([...refs.values()].map((r) => r.set({ smsOptOutAt: now(), smsOptIn: false }, { merge: true }).catch(() => {})));
+        await db.collection(MESSAGES).add({ customerId: null, type: "optout", channel: "sms", body: `STOP from ${from}`, amount: null, ts: now() }).catch(() => {});
+        return twiml("You're unsubscribed from The Pink Poodle texts. It can take up to 24 hours to fully stop. Reply START to rejoin.");
+      }
+      if (START.includes(text)) {
+        await Promise.all([...refs.values()].map((r) => r.set({ smsOptOutAt: admin.firestore.FieldValue.delete(), smsOptIn: true }, { merge: true }).catch(() => {})));
+        return twiml("You're re-subscribed to The Pink Poodle 🐩. Reply STOP anytime to opt out, HELP for help.");
+      }
+      if (text === "HELP" || text === "INFO") {
+        return twiml("The Pink Poodle: appointment & promo texts. Msg&data rates may apply. Reply STOP to cancel. Call (304) 921-2748.");
+      }
+      // Any other inbound text just acknowledges softly (Britni reads replies).
+      return twiml("");
+    } catch (e) {
+      console.error("sms inbound error", e && e.message);
+      res.set("Content-Type", "text/xml");
+      return res.status(200).send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
     }
   }
 );

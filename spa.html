@@ -112,6 +112,7 @@
         <button type="button" class="pill sel" data-sub="board">🧼 Board</button>
         <button type="button" class="pill" data-sub="ledger">📒 Ledger</button>
         <button type="button" class="pill" data-sub="clients">📇 Clients</button>
+        <button type="button" class="pill" data-sub="vaxdue">💉 Vaccinations</button>
         <button type="button" class="pill" data-sub="fees">⚙️ Fees &amp; PIN</button>
       </div>
 
@@ -132,7 +133,7 @@
         <h1>Double-entry ledger 📒</h1>
         <p class="lead">Every checkout posts a balanced journal entry. Debits always equal credits.</p>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem">
-          <button class="btn btn--primary btn--sm" id="ledgerAddBtn" type="button">＋ Manual entry</button>
+          <button class="btn btn--primary btn--sm" id="ledgerAddBtn" data-min-role="manager" type="button">＋ Manual entry</button>
           <button class="btn btn--soft btn--sm" id="ledgerCsvBtn" type="button">⬇ Export CSV</button>
           <button class="btn btn--soft btn--sm" id="ledgerRefresh" type="button">↻ Refresh</button>
         </div>
@@ -154,14 +155,35 @@
         <div id="clientsBody"></div>
       </div>
 
+      <!-- Vaccinations due -->
+      <div class="staff__pane hidden" data-sub="vaxdue">
+        <h1>Vaccinations due 💉</h1>
+        <p class="lead">Missing, expired, and expiring shots sorted by urgency.</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:0.5rem 0">
+          <button class="btn btn--soft btn--sm" id="vaxDueCsvBtn" type="button">⬇ CSV</button>
+          <button class="btn btn--soft btn--sm" id="vaxDueRefresh" type="button">↻ Refresh</button>
+        </div>
+        <div id="vaxDueBody"></div>
+      </div>
+
       <!-- Fees & PIN -->
       <div class="staff__pane hidden" data-sub="fees">
         <h1>Fees &amp; PIN ⚙️</h1>
         <p class="lead">Set the extra fees that appear at checkout, and change the staff PIN.</p>
         <div id="feesBody"></div>
-        <button class="btn btn--soft btn--sm" id="feeAddBtn" type="button">＋ Add fee</button>
-        <div style="margin-top:0.6rem"><button class="btn btn--primary btn--block" id="feeSaveBtn" type="button">Save fees</button></div>
-        <div class="card" style="margin-top:1rem">
+        <button class="btn btn--soft btn--sm" id="feeAddBtn" data-min-role="manager" type="button">＋ Add fee</button>
+        <div style="margin-top:0.6rem"><button class="btn btn--primary btn--block" id="feeSaveBtn" data-min-role="manager" type="button">Save fees</button></div>
+        <div class="card" id="vaxConfigCard" data-min-role="manager" style="margin-top:1rem">
+          <h2 style="margin-top:0">Required vaccinations</h2>
+          <p class="muted" style="margin-top:-0.2rem">Choose shots required for every pet. Add custom names as needed.</p>
+          <div id="vaxConfigBody"></div>
+          <div class="row2" style="align-items:end;margin-top:0.4rem">
+            <div class="field"><label>Add custom</label><input type="text" id="vaxCustom" placeholder="e.g. Leptospirosis" /></div>
+            <button class="btn btn--soft btn--sm" id="vaxAddCustomBtn" type="button" style="height:44px">＋ Add</button>
+          </div>
+          <button class="btn btn--primary btn--block" id="vaxSaveBtn" type="button">Save required vaccinations</button>
+        </div>
+        <div class="card" id="pinCard" data-min-role="owner" style="margin-top:1rem">
           <h2 style="margin-top:0">Change staff PIN</h2>
           <div class="field"><label>New PIN (4–8 digits)</label><input type="password" id="newPin" inputmode="numeric" placeholder="New PIN" /></div>
           <button class="btn btn--soft btn--block" id="pinSaveBtn" type="button">Update PIN</button>
@@ -266,10 +288,8 @@
       <h2 id="clientModalTitle">Client</h2>
       <input type="hidden" id="clId" />
       <div class="field"><label>Owner name</label><input type="text" id="clName" placeholder="e.g. Jane Smith" /></div>
-      <div class="row2">
-        <div class="field"><label>Mobile / text</label><input type="tel" id="clPhone" placeholder="(304) 555-1234" inputmode="tel" /></div>
-        <div class="field"><label>Email</label><input type="email" id="clEmail" placeholder="jane@email.com" inputmode="email" /></div>
-      </div>
+      <div class="field"><label>Phone numbers</label><div id="clPhones"></div><button class="btn btn--soft btn--sm" id="clAddPhone" type="button">＋ Add phone</button></div>
+      <div class="field"><label>Email</label><input type="email" id="clEmail" placeholder="jane@email.com" inputmode="email" /></div>
       <div class="field"><label>Notes <span class="muted">(preferences, alerts…)</span></label><textarea id="clNotes" placeholder="Prefers morning drop-off; nervous with dryers…"></textarea></div>
 
       <h2 style="font-size:1rem;margin:0.6rem 0 0.3rem">Pets 🐩</h2>
@@ -299,10 +319,11 @@
       <div class="field"><label>Temperament</label><input type="text" id="petTemperament" placeholder="Friendly, shy, sensitive to nails…" /></div>
       <div class="field"><label>Grooming notes / allergies</label><textarea id="petNotes" placeholder="Sensitive skin, matting behind ears, loves peanut butter…"></textarea></div>
       <div class="card" style="background:#fff8ee">
-        <h2 style="font-size:0.95rem;margin:0 0 0.4rem">💉 Vaccination</h2>
-        <div class="field"><label>Rabies expires</label><input type="date" id="petRabies" /></div>
+        <h2 style="font-size:0.95rem;margin:0 0 0.4rem">💉 Vaccinations</h2>
+        <div id="petVaxList"></div>
+        <button class="btn btn--soft btn--sm" id="petAddVax" type="button">＋ Add vaccination</button>
+        <datalist id="knownVaxList"></datalist>
         <div id="petVaxStatus" style="margin:0.2rem 0 0.4rem"></div>
-        <div class="field"><label>Other vax notes</label><input type="text" id="petVaxNotes" placeholder="DHPP current 3/2026, Bordetella…" /></div>
       </div>
       <div style="display:flex;gap:0.5rem;margin-top:0.9rem">
         <button class="btn btn--soft" id="petDelete" type="button" style="display:none">Delete</button>

@@ -67,12 +67,17 @@
   /* ---------- runtime-only state (cleared on reload) ---------- */
   var sel = { services: {}, addons: {}, stylist: 'No preference' };
   var staffPin = null;              // held in memory only while the tab is open
+  var staffRole = null;
+  var staffName = '';
   var lastCodes = [];               // recent REF codes booked this session (memory only)
   var boardCache = [];              // last fetched board tickets
   var feesCache = [];               // last fetched fees
   var boardFilter = 'All';
   var currentSub = 'board';
   var coState = { id: null, items: [] };
+  var knownVax = ['Rabies', 'Bordetella', 'DHPP', 'Canine Influenza'];
+  var requiredVax = ['Rabies'];
+  var dueCache = [];
 
   /* =================================================================
      NAVIGATION
@@ -249,22 +254,34 @@
      STAFF — PIN gate
      ================================================================= */
   function staffUnlocked() { return !!staffPin; }
+  function can(min) {
+    var rank = { stylist: 1, manager: 2, owner: 3 };
+    return (rank[staffRole] || 0) >= (rank[min] || 0);
+  }
   function setStaffUI(on) {
     $('staffToggle').classList.toggle('on', on);
-    $('staffToggle').textContent = on ? '🔓 Staff' : '🔒 Staff';
+    $('staffToggle').textContent = on ? ('🔓 ' + (staffName || 'Staff')) : '🔒 Staff';
     document.querySelector('.nav__staff').classList.toggle('hidden', !on);
+    document.querySelectorAll('[data-min-role]').forEach(function (el) {
+      var ok = on && can(el.dataset.minRole);
+      el.classList.toggle('hidden', !ok);
+      el.hidden = !ok;
+      if ('disabled' in el) el.disabled = !ok;
+    });
   }
   $('staffToggle').addEventListener('click', function () {
-    if (staffUnlocked()) { staffPin = null; setStaffUI(false); go('home'); return; }
+    if (staffUnlocked()) { staffPin = null; staffRole = null; staffName = ''; setStaffUI(false); go('home'); return; }
     $('pinInput').value = ''; $('pinModal').classList.add('open'); setTimeout(function () { $('pinInput').focus(); }, 100);
   });
   $('pinGo').addEventListener('click', function () {
     var pin = $('pinInput').value.trim();
     if (!pin) return;
     $('pinGo').disabled = true;
-    // Validate by attempting a staff call; hold the PIN in memory only on success.
-    api('spaBoard', { pin: pin }).then(function (res) {
-      staffPin = pin; boardCache = res.tickets || [];
+    api('spaLogin', { pin: pin }).then(function (res) {
+      var actor = res.actor || {};
+      staffPin = pin; staffRole = actor.role || 'stylist'; staffName = actor.name || '';
+      return fetchBoard();
+    }).then(function () {
       $('pinModal').classList.remove('open'); setStaffUI(true); go('staff'); showSub('board');
       if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
     }).catch(function (err) {
@@ -282,6 +299,7 @@
     if (sub === 'board') renderBoard();
     if (sub === 'ledger') loadLedger();
     if (sub === 'clients') loadClients();
+    if (sub === 'vaxdue') loadVaxDue();
     if (sub === 'fees') loadFees();
   }
   document.querySelectorAll('#staffSubnav .pill').forEach(function (b) { b.addEventListener('click', function () { showSub(b.dataset.sub); }); });
@@ -295,6 +313,7 @@
   function renderBoard() {
     fetchBoard().then(drawBoard).catch(function (e) { toast(e.message); });
   }
+  function ticketHasPayment(t) { return !!(t && (t.paid || Number(t.finalTotal) > 0 || t.ledgerId)); }
   function drawBoard() {
     var f = $('boardFilter');
     var opts = ['All'].concat(STYLISTS.map(function (s) { return s.name; }).filter(function (n) { return n !== 'No preference'; }));
@@ -308,18 +327,19 @@
     box.innerHTML = list.map(function (t) {
       var done = t.step >= 6;
       var ready = t.step === 5;
-      var chip = t.paid ? '<span class="statuschip statuschip--done">Paid ✓</span>' : (done ? '<span class="statuschip statuschip--done">Picked up</span>' : (ready ? '<span class="statuschip statuschip--ready">Ready 🔔</span>' : '<span class="statuschip statuschip--go">' + esc(STEPS[t.step]) + '</span>'));
+      var chip = t.voided ? '<span class="statuschip statuschip--done">Voided</span>' : (t.paid ? '<span class="statuschip statuschip--done">Paid ✓</span>' : (done ? '<span class="statuschip statuschip--done">Picked up</span>' : (ready ? '<span class="statuschip statuschip--ready">Ready 🔔</span>' : '<span class="statuschip statuschip--go">' + esc(STEPS[t.step]) + '</span>')));
       var actions = '';
-      if (!done) {
+      if (!done && !t.voided) {
         if (t.step < 5) actions += '<button class="btn btn--primary btn--sm" data-adv="' + t.id + '" data-step="' + (t.step + 1) + '">Next: ' + esc(STEPS[t.step + 1]) + ' →</button>';
         if (t.step === 5) actions += '<button class="btn btn--gold btn--sm" data-adv="' + t.id + '" data-step="6">Mark picked up</button>';
         if (t.step >= 1) actions += '<button class="btn btn--soft btn--sm" data-adv="' + t.id + '" data-step="' + (t.step - 1) + '">‹ Back</button>';
       }
-      if (!t.paid) actions += '<button class="btn btn--gold btn--sm" data-co="' + t.id + '">💳 Checkout</button>';
-      actions += '<button class="btn btn--soft btn--sm" data-cx="' + t.id + '">Cancel</button>';
-      actions += '<button class="btn btn--soft btn--sm" data-del="' + t.id + '">✕</button>';
+      if (!t.paid && !t.voided) actions += '<button class="btn btn--gold btn--sm" data-co="' + t.id + '">💳 Checkout</button>';
+      if (!t.voided) actions += '<button class="btn btn--soft btn--sm" data-cx="' + t.id + '">Cancel</button>';
+      if (ticketHasPayment(t)) actions += can('manager') ? '<button class="btn btn--soft btn--sm" data-void="' + t.id + '">Void</button>' : '';
+      else if (!t.voided) actions += '<button class="btn btn--soft btn--sm" data-del="' + t.id + '">✕</button>';
       var owner = t.owner || {};
-      return '<div class="card ticket ' + (ready ? 'ticket--ready' : '') + (done ? ' ticket--done' : '') + '">' +
+      return '<div class="card ticket ' + (ready ? 'ticket--ready' : '') + (done || t.voided ? ' ticket--done' : '') + '" style="' + (t.voided ? 'opacity:0.6;text-decoration:line-through' : '') + '">' +
         '<div class="ticket__top"><strong>' + esc(t.pet && t.pet.name || t.petName) + '</strong>' + chip +
         '<span class="ticket__code" style="margin-left:auto">' + esc(t.code) + '</span></div>' +
         '<div class="ticket__svcs">' + esc((t.services || []).join(' · ')) + ' — ' + esc(t.stylist) +
@@ -327,6 +347,7 @@
         (t.finalTotal ? ' · <strong>paid ' + money(t.finalTotal) + '</strong>' : '') + '</div>' +
         (owner.name || owner.phone ? '<div class="muted">📱 ' + esc(owner.name || '') + (owner.phone ? ' · ' + esc(owner.phone) : '') + '</div>' : '') +
         (t.pet && t.pet.notes ? '<div class="muted">📝 ' + esc(t.pet.notes) + '</div>' : '') +
+        (t.voided && t.voidReason ? '<div class="muted">Void reason: ' + esc(t.voidReason) + '</div>' : '') +
         '<div class="ticket__actions">' + actions + '</div></div>';
     }).join('');
 
@@ -337,6 +358,15 @@
       if (!confirm('Remove from board? This deletes the ticket.')) return;
       api('spaDelete', { pin: staffPin, id: el.dataset.del }).then(renderBoard).catch(function (e) { toast(e.message); });
     }); });
+    box.querySelectorAll('[data-void]').forEach(function (el) { el.addEventListener('click', function () { voidTicket(el.dataset.void); }); });
+  }
+  function voidTicket(id) {
+    if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
+    var reason = prompt('Reason for voiding this paid ticket?');
+    if (reason == null) return;
+    reason = reason.trim();
+    if (!reason) { toast('Void reason required.'); return; }
+    api('spaVoid', { pin: staffPin, id: id, reason: reason }).then(function () { toast('Ticket voided'); renderBoard(); }).catch(function (e) { toast(e.message); });
   }
   function advance(id, step) {
     var t = boardCache.filter(function (x) { return x.id === id; })[0];
@@ -454,11 +484,13 @@
   }
   $('ledgerRefresh').addEventListener('click', loadLedger);
   $('ledgerAddBtn').addEventListener('click', function () {
+    if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
     $('leDate').value = todayISO(); $('leMemo').value = ''; $('leDebit').value = ''; $('leCredit').value = ''; $('leAmount').value = '';
     $('ledgerModal').classList.add('open');
   });
   $('leCancel').addEventListener('click', function () { $('ledgerModal').classList.remove('open'); });
   $('leSave').addEventListener('click', function () {
+    if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
     api('spaLedgerAdd', { pin: staffPin, date: $('leDate').value, memo: $('leMemo').value.trim(), debit: $('leDebit').value.trim(), credit: $('leCredit').value.trim(), amount: Number($('leAmount').value) || 0 })
       .then(function () { $('ledgerModal').classList.remove('open'); toast('Entry posted 📒'); loadLedger(); })
       .catch(function (e) { toast(e.message); });
@@ -478,15 +510,40 @@
      ================================================================= */
   var clientsCache = [];
   var editPets = [];          // pets in the currently-open client modal
+  var editPhones = [];
   var editingClientId = '';
 
-  function vaxStatus(exp) {
-    if (!exp) return { cls: 'vax--unknown', icon: '❔', label: 'Rabies: no date on file' };
-    var t = todayISO();
-    if (exp < t) return { cls: 'vax--expired', icon: '⚠️', label: 'Rabies EXPIRED ' + exp };
-    var d = new Date(exp + 'T00:00:00'), soon = new Date(); soon.setDate(soon.getDate() + 30);
-    if (d <= soon) return { cls: 'vax--expiring', icon: '⏳', label: 'Rabies expiring ' + exp };
-    return { cls: 'vax--current', icon: '✅', label: 'Rabies current · ' + exp };
+  function vaxStatusBadge(status) {
+    var map = {
+      ok: { cls: 'vax--current', icon: '✅', label: 'Vaccines OK' },
+      unknown: { cls: 'vax--unknown', icon: '❔', label: 'Vaccines unknown' },
+      expiring: { cls: 'vax--expiring', icon: '⏳', label: 'Vaccines expiring' },
+      expired: { cls: 'vax--expired', icon: '⚠️', label: 'Vaccines expired' },
+      missing: { cls: 'vax--expired', icon: '⚠️', label: 'Vaccines missing' }
+    };
+    return map[status] || map.unknown;
+  }
+  function vaxBadge(status) {
+    var v = vaxStatusBadge(status);
+    return '<span class="vaxbadge ' + v.cls + '">' + v.icon + ' ' + esc(v.label) + '</span>';
+  }
+  function phonesFor(c) {
+    var phones = (c && c.phones && c.phones.length) ? c.phones : (c && c.phone ? [{ type: 'Mobile', number: c.phone }] : []);
+    return phones.filter(function (p) { return p && p.number; }).map(function (p) { return { type: p.type || 'Mobile', number: p.number || '' }; });
+  }
+  function primaryPhone(c) { var phones = phonesFor(c); return phones.length ? phones[0].number : ''; }
+  function phoneLines(c) {
+    var phones = phonesFor(c);
+    return phones.map(function (p) { return '<div class="muted">📱 ' + esc(p.type || 'Phone') + ': ' + esc(p.number) + '</div>'; }).join('');
+  }
+  function vaxSummary(p) {
+    return (p.vaccinations || []).filter(function (v) { return v && v.type; }).map(function (v) {
+      return v.type + (v.expires ? ':' + v.expires : '') + (v.verifiedAt ? ' verified ' + v.verifiedAt : '') + (v.notes ? ' (' + v.notes + ')' : '');
+    }).join('; ');
+  }
+  function rabiesFrom(vaccinations) {
+    var r = (vaccinations || []).filter(function (v) { return /^rabies$/i.test(v.type || ''); })[0];
+    return r ? (r.expires || '') : '';
   }
   function smsHref(phone, name) {
     var msg = 'Hi ' + (name ? name.split(' ')[0] : 'there') + '! It\u2019s The Pink Poodle \uD83D\uDC29 — ';
@@ -497,6 +554,8 @@
     $('clientsBody').innerHTML = '<p class="muted">Loading…</p>';
     api('spaClients', { pin: staffPin }).then(function (res) {
       clientsCache = res.clients || [];
+      requiredVax = res.requiredVax || res.required || requiredVax;
+      knownVax = res.knownVax || res.known || knownVax;
       clientsCache.sort(function (a, b) { return (a.name || 'zzz').toLowerCase() < (b.name || 'zzz').toLowerCase() ? -1 : 1; });
       drawClients();
     }).catch(function (e) { $('clientsBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
@@ -505,7 +564,8 @@
     var q = ($('clientSearch').value || '').trim().toLowerCase();
     var list = clientsCache.filter(function (c) {
       if (!q) return true;
-      var hay = (c.name || '') + ' ' + (c.phone || '') + ' ' + (c.email || '') + ' ' + (c.pets || []).map(function (p) { return p.name + ' ' + p.breed; }).join(' ');
+      var allPhones = phonesFor(c).map(function (p) { return p.number; }).join(' ');
+      var hay = (c.name || '') + ' ' + (c.phone || '') + ' ' + allPhones + ' ' + (c.email || '') + ' ' + (c.pets || []).map(function (p) { return p.name + ' ' + p.breed; }).join(' ');
       return hay.toLowerCase().indexOf(q) >= 0;
     });
     var box = $('clientsBody');
@@ -513,33 +573,35 @@
     box.innerHTML = list.map(function (c, i) {
       var idx = clientsCache.indexOf(c);
       var pets = (c.pets || []).map(function (p) {
-        var v = vaxStatus(p.rabiesExpires);
         return '<div class="petrow"><span class="petrow__name">🐩 ' + esc(p.name || 'Pet') +
           (p.breed ? ' <span class="muted">· ' + esc(p.breed) + '</span>' : '') +
           (p.size ? ' <span class="muted">· ' + esc(p.size) + '</span>' : '') + '</span>' +
-          '<span class="vaxbadge ' + v.cls + '">' + v.icon + ' ' + esc(v.label) + '</span>' +
+          vaxBadge(p.vaxStatus) +
           (p.temperament ? '<div class="muted">🐾 ' + esc(p.temperament) + '</div>' : '') +
           (p.notes ? '<div class="muted">📝 ' + esc(p.notes) + '</div>' : '') +
-          (p.vaxNotes ? '<div class="muted">💉 ' + esc(p.vaxNotes) + '</div>' : '') + '</div>';
+          (vaxSummary(p) ? '<div class="muted">💉 ' + esc(vaxSummary(p)) + '</div>' : (p.vaxNotes ? '<div class="muted">💉 ' + esc(p.vaxNotes) + '</div>' : '')) + '</div>';
       }).join('');
       var contact = '';
-      if (c.phone) contact += '<a class="btn btn--soft btn--sm" href="tel:' + esc(c.phone) + '">📞 Call</a>' +
-        '<a class="btn btn--soft btn--sm" href="' + esc(smsHref(c.phone, c.name)) + '">💬 Text</a>';
+      var phone = primaryPhone(c);
+      if (phone) contact += '<a class="btn btn--soft btn--sm" href="tel:' + esc(phone) + '">📞 Call</a>' +
+        '<a class="btn btn--soft btn--sm" href="' + esc(smsHref(phone, c.name)) + '">💬 Text</a>';
       if (c.email) contact += '<a class="btn btn--soft btn--sm" href="mailto:' + esc(c.email) + '">✉️ Email</a>';
       return '<div class="card client">' +
         '<div class="ticket__top"><strong>' + esc(c.name || '(no name)') + '</strong>' +
+        vaxBadge(c.vaxStatus) +
         (c.derived ? '<span class="statuschip statuschip--go" title="From bookings — not yet saved">auto</span>' : '') +
         '<span class="ticket__code" style="margin-left:auto">' + (c.visits || 0) + ' visit' + ((c.visits || 0) === 1 ? '' : 's') + ' · ' + money(c.spent || 0) + '</span></div>' +
-        (c.phone ? '<div class="muted">📱 ' + esc(c.phone) + '</div>' : '') +
+        phoneLines(c) +
         (c.notes ? '<div class="muted">🗒️ ' + esc(c.notes) + '</div>' : '') +
         '<div class="client__contact">' + contact + '</div>' +
         (pets || '<div class="muted">No pets on file yet.</div>') +
         '<div class="ticket__actions"><button class="btn btn--gold btn--sm" data-cledit="' + idx + '">✎ Edit / add pet</button>' +
-        (c.derived ? '' : '<button class="btn btn--soft btn--sm" data-cldel="' + idx + '">Delete</button>') + '</div></div>';
+        (c.derived || !can('manager') ? '' : '<button class="btn btn--soft btn--sm" data-cldel="' + idx + '">Delete</button>') + '</div></div>';
     }).join('');
     box.querySelectorAll('[data-cledit]').forEach(function (el) { el.addEventListener('click', function () { openClient(clientsCache[Number(el.dataset.cledit)]); }); });
     box.querySelectorAll('[data-cldel]').forEach(function (el) { el.addEventListener('click', function () {
       var c = clientsCache[Number(el.dataset.cldel)];
+      if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
       if (!c.id || !confirm('Delete ' + (c.name || 'this client') + '? Their visit history on tickets is kept.')) return;
       api('spaClientDelete', { pin: staffPin, id: c.id }).then(function () { toast('Client deleted'); loadClients(); }).catch(function (e) { toast(e.message); });
     }); });
@@ -553,23 +615,39 @@
     c = c || {};
     editingClientId = c.id || '';
     editPets = (c.pets || []).map(function (p) { return Object.assign({}, p); });
+    editPhones = phonesFor(c);
+    if (!editPhones.length) editPhones = [{ type: 'Mobile', number: '' }];
     $('clientModalTitle').textContent = c.name ? 'Edit ' + c.name : 'New client';
     $('clId').value = c.id || '';
     $('clName').value = c.name || '';
-    $('clPhone').value = c.phone || '';
     $('clEmail').value = c.email || '';
     $('clNotes').value = c.notes || '';
-    $('clDelete').style.display = c.id ? '' : 'none';
+    $('clDelete').style.display = c.id && can('manager') ? '' : 'none';
+    drawEditPhones();
     drawEditPets();
     $('clientModal').classList.add('open');
   }
   function closeClient() { $('clientModal').classList.remove('open'); }
+  function drawEditPhones() {
+    $('clPhones').innerHTML = editPhones.map(function (p, i) {
+      return '<div class="row2" style="grid-template-columns:110px 1fr 34px;gap:0.4rem;align-items:center;margin-bottom:0.4rem">' +
+        '<select data-phone-type="' + i + '"><option' + (p.type === 'Mobile' ? ' selected' : '') + '>Mobile</option><option' + (p.type === 'Home' ? ' selected' : '') + '>Home</option><option' + (p.type === 'Work' ? ' selected' : '') + '>Work</option><option' + (p.type === 'Other' ? ' selected' : '') + '>Other</option></select>' +
+        '<input type="tel" data-phone-number="' + i + '" value="' + esc(p.number) + '" placeholder="(304) 555-1234" inputmode="tel" />' +
+        '<button class="btn btn--soft btn--sm" data-phone-rm="' + i + '" type="button">✕</button></div>';
+    }).join('');
+    $('clPhones').querySelectorAll('[data-phone-type]').forEach(function (el) { el.addEventListener('change', function () { editPhones[el.dataset.phoneType].type = el.value; }); });
+    $('clPhones').querySelectorAll('[data-phone-number]').forEach(function (el) { el.addEventListener('input', function () { editPhones[el.dataset.phoneNumber].number = el.value; }); });
+    $('clPhones').querySelectorAll('[data-phone-rm]').forEach(function (el) { el.addEventListener('click', function () {
+      editPhones.splice(Number(el.dataset.phoneRm), 1);
+      if (!editPhones.length) editPhones.push({ type: 'Mobile', number: '' });
+      drawEditPhones();
+    }); });
+  }
   function drawEditPets() {
     $('clPets').innerHTML = editPets.length ? editPets.map(function (p, i) {
-      var v = vaxStatus(p.rabiesExpires);
       return '<div class="petrow petrow--edit"><span class="petrow__name">🐩 ' + esc(p.name || 'Pet') +
         (p.breed ? ' <span class="muted">· ' + esc(p.breed) + '</span>' : '') + '</span>' +
-        '<span class="vaxbadge ' + v.cls + '">' + v.icon + '</span>' +
+        vaxBadge(p.vaxStatus) +
         '<span style="margin-left:auto"><button class="btn btn--soft btn--sm" data-petedit="' + i + '" type="button">✎</button>' +
         '<button class="btn btn--soft btn--sm" data-petrm="' + i + '" type="button">✕</button></span></div>';
     }).join('') : '<p class="muted">No pets yet — add one below.</p>';
@@ -579,26 +657,30 @@
     }); });
   }
   $('clCancel').addEventListener('click', closeClient);
+  $('clAddPhone').addEventListener('click', function () { editPhones.push({ type: 'Mobile', number: '' }); drawEditPhones(); });
   $('clAddPet').addEventListener('click', function () { openPet(-1); });
   $('clDelete').addEventListener('click', function () {
+    if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
     if (!editingClientId || !confirm('Delete this client?')) return;
     api('spaClientDelete', { pin: staffPin, id: editingClientId }).then(function () { toast('Client deleted'); closeClient(); loadClients(); }).catch(function (e) { toast(e.message); });
   });
   $('clSave').addEventListener('click', function () {
+    var phones = editPhones.map(function (p) { return { type: p.type || 'Mobile', number: (p.number || '').trim() }; }).filter(function (p) { return p.number; });
     var client = {
       id: $('clId').value || '',
       name: $('clName').value.trim(),
-      phone: $('clPhone').value.trim(),
+      phones: phones,
       email: $('clEmail').value.trim(),
       notes: $('clNotes').value.trim(),
       pets: editPets
     };
-    if (!client.name && !client.phone) { toast('Add a name or phone number.'); return; }
+    if (!client.name && !phones.length) { toast('Add a name or phone number.'); return; }
     api('spaClientSave', { pin: staffPin, client: client }).then(function () { toast('Client saved 💾'); closeClient(); loadClients(); }).catch(function (e) { toast(e.message); });
   });
 
   /* ---- pet modal (edits into editPets, saved with the client) ---- */
   var editingPetIdx = -1;
+  var editVax = [];
   function openPet(i) {
     editingPetIdx = i;
     var p = i >= 0 ? editPets[i] : {};
@@ -609,17 +691,41 @@
     $('petSize').value = p.size || '';
     $('petTemperament').value = p.temperament || '';
     $('petNotes').value = p.notes || '';
-    $('petRabies').value = p.rabiesExpires || '';
-    $('petVaxNotes').value = p.vaxNotes || '';
-    petVaxPreview();
+    editVax = (p.vaccinations || []).map(function (v) { return Object.assign({}, v); });
+    if (!editVax.length && p.rabiesExpires) editVax.push({ type: 'Rabies', expires: p.rabiesExpires, verifiedAt: '', notes: p.vaxNotes || '' });
+    if (!editVax.length) editVax.push({ type: 'Rabies', expires: '', verifiedAt: '', notes: '' });
+    drawKnownVaxList();
+    drawEditVax();
     $('petDelete').style.display = i >= 0 ? '' : 'none';
     $('petModal').classList.add('open');
   }
-  function petVaxPreview() {
-    var v = vaxStatus($('petRabies').value);
-    $('petVaxStatus').innerHTML = '<span class="vaxbadge ' + v.cls + '">' + v.icon + ' ' + esc(v.label) + '</span>';
+  function drawKnownVaxList() {
+    $('knownVaxList').innerHTML = knownVax.map(function (v) { return '<option value="' + esc(v) + '"></option>'; }).join('');
   }
-  $('petRabies').addEventListener('change', petVaxPreview);
+  function drawEditVax() {
+    $('petVaxList').innerHTML = editVax.map(function (v, i) {
+      return '<div class="card" style="padding:0.55rem;margin-bottom:0.45rem;background:#fff">' +
+        '<div class="field"><label>Type</label><input type="text" data-vax-type="' + i + '" value="' + esc(v.type || '') + '" list="knownVaxList" placeholder="Rabies" /></div>' +
+        '<div class="row2"><div class="field"><label>Expires</label><input type="date" data-vax-exp="' + i + '" value="' + esc(v.expires || '') + '" /></div>' +
+        '<div class="field"><label>Verified</label><input type="date" data-vax-ver="' + i + '" value="' + esc(v.verifiedAt || '') + '" /></div></div>' +
+        '<div class="field"><label>Notes</label><input type="text" data-vax-notes="' + i + '" value="' + esc(v.notes || '') + '" placeholder="optional" /></div>' +
+        '<button class="btn btn--soft btn--sm" data-vax-rm="' + i + '" type="button">Remove vaccination</button></div>';
+    }).join('');
+    $('petVaxList').querySelectorAll('[data-vax-type]').forEach(function (el) { el.addEventListener('input', function () { editVax[el.dataset.vaxType].type = el.value; }); });
+    $('petVaxList').querySelectorAll('[data-vax-exp]').forEach(function (el) { el.addEventListener('input', function () { editVax[el.dataset.vaxExp].expires = el.value; petVaxPreview(); }); });
+    $('petVaxList').querySelectorAll('[data-vax-ver]').forEach(function (el) { el.addEventListener('input', function () { editVax[el.dataset.vaxVer].verifiedAt = el.value; }); });
+    $('petVaxList').querySelectorAll('[data-vax-notes]').forEach(function (el) { el.addEventListener('input', function () { editVax[el.dataset.vaxNotes].notes = el.value; }); });
+    $('petVaxList').querySelectorAll('[data-vax-rm]').forEach(function (el) { el.addEventListener('click', function () {
+      editVax.splice(Number(el.dataset.vaxRm), 1);
+      drawEditVax();
+    }); });
+    petVaxPreview();
+  }
+  function petVaxPreview() {
+    var summary = editVax.filter(function (v) { return v.type; }).map(function (v) { return (v.type || '') + (v.expires ? ' ' + v.expires : ''); }).join(' · ');
+    $('petVaxStatus').innerHTML = summary ? '<p class="muted" style="margin:0.4rem 0 0">' + esc(summary) + '</p>' : '<p class="muted" style="margin:0.4rem 0 0">No vaccinations entered.</p>';
+  }
+  $('petAddVax').addEventListener('click', function () { editVax.push({ type: '', expires: '', verifiedAt: '', notes: '' }); drawEditVax(); });
   $('petCancel').addEventListener('click', function () { $('petModal').classList.remove('open'); });
   $('petDelete').addEventListener('click', function () {
     if (editingPetIdx >= 0) { editPets.splice(editingPetIdx, 1); drawEditPets(); }
@@ -628,6 +734,9 @@
   $('petSave').addEventListener('click', function () {
     var name = $('petName').value.trim();
     if (!name) { toast('Pet name required.'); return; }
+    var vaccinations = editVax.map(function (v) {
+      return { type: (v.type || '').trim(), expires: v.expires || '', verifiedAt: v.verifiedAt || '', notes: (v.notes || '').trim() };
+    }).filter(function (v) { return v.type; });
     var pet = {
       id: $('petId').value || '',
       name: name,
@@ -635,8 +744,8 @@
       size: $('petSize').value,
       temperament: $('petTemperament').value.trim(),
       notes: $('petNotes').value.trim(),
-      rabiesExpires: $('petRabies').value || '',
-      vaxNotes: $('petVaxNotes').value.trim()
+      rabiesExpires: rabiesFrom(vaccinations),
+      vaccinations: vaccinations
     };
     if (editingPetIdx >= 0) editPets[editingPetIdx] = pet; else editPets.push(pet);
     $('petModal').classList.remove('open');
@@ -644,22 +753,23 @@
   });
 
   $('clientsCsvBtn').addEventListener('click', function () {
-    var rows = [['Owner', 'Phone', 'Email', 'Visits', 'Spent', 'Pet', 'Breed', 'Size', 'RabiesExpires', 'VaxNotes', 'Notes']];
+    var rows = [['Owner', 'Phones', 'Email', 'Visits', 'Spent', 'Pet', 'Breed', 'Size', 'VaxStatus', 'Vaccinations', 'Notes']];
     clientsCache.forEach(function (c) {
+      var phones = phonesFor(c).map(function (p) { return (p.type || 'Phone') + ':' + p.number; }).join('; ');
       if (c.pets && c.pets.length) c.pets.forEach(function (p) {
-        rows.push([c.name || '', c.phone || '', c.email || '', c.visits || 0, c.spent || 0, p.name || '', p.breed || '', p.size || '', p.rabiesExpires || '', p.vaxNotes || '', c.notes || '']);
+        rows.push([c.name || '', phones, c.email || '', c.visits || 0, c.spent || 0, p.name || '', p.breed || '', p.size || '', p.vaxStatus || '', vaxSummary(p), c.notes || '']);
       });
-      else rows.push([c.name || '', c.phone || '', c.email || '', c.visits || 0, c.spent || 0, '', '', '', '', '', c.notes || '']);
+      else rows.push([c.name || '', phones, c.email || '', c.visits || 0, c.spent || 0, '', '', '', c.vaxStatus || '', '', c.notes || '']);
     });
     dl('pink-poodle-clients-' + todayISO() + '.csv', 'text/csv', rows.map(csvRow).join('\r\n'));
   });
   $('clientsVcfBtn').addEventListener('click', function () {
     var vcf = clientsCache.map(function (c) {
       var n = c.name || 'Pink Poodle Client';
-      var pets = (c.pets || []).map(function (p) { return p.name + (p.rabiesExpires ? ' (rabies ' + p.rabiesExpires + ')' : ''); });
+      var pets = (c.pets || []).map(function (p) { return p.name + (vaxSummary(p) ? ' (' + vaxSummary(p) + ')' : ''); });
       var note = (c.visits || 0) + ' visits, ' + money(c.spent || 0) + ' spent' + (pets.length ? '. Pets: ' + pets.join(', ') : '') + (c.notes ? '. ' + c.notes : '');
       return 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:' + vEsc(n) + '\r\n' +
-        (c.phone ? 'TEL;TYPE=CELL:' + vEsc(c.phone) + '\r\n' : '') +
+        phonesFor(c).map(function (p) { return 'TEL;TYPE=' + vEsc((p.type || 'CELL').toUpperCase()) + ':' + vEsc(p.number) + '\r\n'; }).join('') +
         (c.email ? 'EMAIL:' + vEsc(c.email) + '\r\n' : '') +
         'NOTE:' + vEsc(note) + '\r\n' +
         'END:VCARD';
@@ -676,33 +786,113 @@
   function vEsc(v) { return String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/([,;])/g, '\\$1'); }
 
   /* =================================================================
+     VACCINATIONS DUE
+     ================================================================= */
+  function vaxWorst(status) {
+    return { missing: 0, expired: 1, expiring: 2, unknown: 3, ok: 4 }[status] == null ? 5 : { missing: 0, expired: 1, expiring: 2, unknown: 3, ok: 4 }[status];
+  }
+  function loadVaxDue() {
+    $('vaxDueBody').innerHTML = '<p class="muted">Loading…</p>';
+    api('spaVaxDue', { pin: staffPin }).then(function (res) {
+      dueCache = res.due || [];
+      requiredVax = res.required || requiredVax;
+      dueCache.sort(function (a, b) { return vaxWorst(a.status) - vaxWorst(b.status) || String(a.client || '').localeCompare(String(b.client || '')); });
+      drawVaxDue();
+    }).catch(function (e) { $('vaxDueBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  function drawVaxDue() {
+    if (!dueCache.length) { $('vaxDueBody').innerHTML = '<div class="empty"><div class="big">✅</div><p>No vaccinations due.</p></div>'; return; }
+    $('vaxDueBody').innerHTML = dueCache.map(function (d) {
+      var shots = (d.details || []).map(function (x) {
+        return '<span class="vaxbadge ' + vaxStatusBadge(x.status).cls + '">' + esc(x.type || '') + (x.expires ? ' ' + esc(x.expires) : '') + ' · ' + esc(x.status || '') + '</span>';
+      }).join(' ');
+      var contact = d.phone ? '<a class="btn btn--soft btn--sm" href="tel:' + esc(d.phone) + '">📞 Call</a>' +
+        '<a class="btn btn--soft btn--sm" href="' + esc(smsHref(d.phone, d.client)) + '">💬 Text</a>' : '';
+      return '<div class="card"><div class="ticket__top"><strong>' + esc(d.client || 'Client') + '</strong>' + vaxBadge(d.status) +
+        '<span class="ticket__code" style="margin-left:auto">🐩 ' + esc(d.pet || '') + '</span></div>' +
+        (d.phone ? '<div class="muted">📱 ' + esc(d.phone) + '</div>' : '') +
+        '<div style="margin:0.45rem 0">' + shots + '</div><div class="client__contact">' + contact + '</div></div>';
+    }).join('');
+  }
+  $('vaxDueRefresh').addEventListener('click', loadVaxDue);
+  $('vaxDueCsvBtn').addEventListener('click', function () {
+    var rows = [['Client', 'Phone', 'Pet', 'Status', 'Vaccinations']];
+    dueCache.forEach(function (d) {
+      rows.push([d.client || '', d.phone || '', d.pet || '', d.status || '', (d.details || []).map(function (x) { return (x.type || '') + ':' + (x.expires || '') + ':' + (x.status || ''); }).join('; ')]);
+    });
+    dl('pink-poodle-vaccinations-due-' + todayISO() + '.csv', 'text/csv', rows.map(csvRow).join('\r\n'));
+  });
+
+  /* =================================================================
      FEES & PIN
      ================================================================= */
   function loadFees() {
     api('spaFees', { pin: staffPin }).then(function (res) { feesCache = res.fees || []; drawFees(); }).catch(function (e) { toast(e.message); });
+    loadVaxConfig();
   }
   function drawFees() {
     $('feesBody').innerHTML = feesCache.map(function (f, i) {
       return '<div class="row2" style="grid-template-columns:1fr 100px 34px;gap:0.4rem;align-items:center;margin-bottom:0.4rem">' +
-        '<input type="text" data-fee-label="' + i + '" value="' + esc(f.label) + '" placeholder="Fee name" />' +
-        '<input type="number" data-fee-amt="' + i + '" value="' + f.amount + '" min="0" step="1" inputmode="decimal" />' +
-        '<button class="btn btn--soft btn--sm" data-fee-del="' + i + '" type="button">✕</button></div>';
+        '<input type="text" data-fee-label="' + i + '" value="' + esc(f.label) + '" placeholder="Fee name" ' + (can('manager') ? '' : 'disabled') + ' />' +
+        '<input type="number" data-fee-amt="' + i + '" value="' + f.amount + '" min="0" step="1" inputmode="decimal" ' + (can('manager') ? '' : 'disabled') + ' />' +
+        (can('manager') ? '<button class="btn btn--soft btn--sm" data-fee-del="' + i + '" type="button">✕</button>' : '') + '</div>';
     }).join('');
     $('feesBody').querySelectorAll('[data-fee-label]').forEach(function (el) { el.addEventListener('input', function () { feesCache[el.dataset.feeLabel].label = el.value; }); });
     $('feesBody').querySelectorAll('[data-fee-amt]').forEach(function (el) { el.addEventListener('input', function () { feesCache[el.dataset.feeAmt].amount = Math.max(0, Number(el.value) || 0); }); });
     $('feesBody').querySelectorAll('[data-fee-del]').forEach(function (el) { el.addEventListener('click', function () { feesCache.splice(el.dataset.feeDel, 1); drawFees(); }); });
   }
-  $('feeAddBtn').addEventListener('click', function () { feesCache.push({ label: '', amount: 0 }); drawFees(); });
+  $('feeAddBtn').addEventListener('click', function () {
+    if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
+    feesCache.push({ label: '', amount: 0 }); drawFees();
+  });
   $('feeSaveBtn').addEventListener('click', function () {
+    if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
     api('spaFeesSave', { pin: staffPin, fees: feesCache.filter(function (f) { return f.label; }) })
       .then(function (res) { feesCache = res.fees || []; drawFees(); toast('Fees saved ⚙️'); })
       .catch(function (e) { toast(e.message); });
   });
   $('pinSaveBtn').addEventListener('click', function () {
+    if (!can('owner')) { toast('That needs an owner PIN.'); return; }
     var np = $('newPin').value.trim();
     if (!/^\d{4,8}$/.test(np)) { toast('PIN must be 4–8 digits'); return; }
     api('spaSetPin', { pin: staffPin, newPin: np }).then(function () {
       staffPin = np; $('newPin').value = ''; toast('PIN updated 🔒');
+    }).catch(function (e) { toast(e.message); });
+  });
+  function loadVaxConfig() {
+    if (!can('manager')) { drawVaxConfig(); return; }
+    api('spaVaxConfig', { pin: staffPin }).then(function (res) {
+      requiredVax = res.required || requiredVax;
+      knownVax = res.known || knownVax;
+      drawVaxConfig();
+    }).catch(function (e) { $('vaxConfigBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  function drawVaxConfig() {
+    var list = knownVax.slice();
+    requiredVax.forEach(function (v) { if (list.indexOf(v) < 0) list.push(v); });
+    if (!$('vaxConfigBody')) return;
+    $('vaxConfigBody').innerHTML = list.length ? list.map(function (v, i) {
+      return '<label class="check"><input type="checkbox" data-vax-req="' + i + '" value="' + esc(v) + '" ' + (requiredVax.indexOf(v) >= 0 ? 'checked' : '') + ' /> <span>' + esc(v) + '</span></label>';
+    }).join('') : '<p class="muted">No vaccination names configured yet.</p>';
+  }
+  $('vaxAddCustomBtn').addEventListener('click', function () {
+    if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
+    var v = $('vaxCustom').value.trim();
+    if (!v) return;
+    if (knownVax.indexOf(v) < 0) knownVax.push(v);
+    if (requiredVax.indexOf(v) < 0) requiredVax.push(v);
+    $('vaxCustom').value = '';
+    drawVaxConfig();
+  });
+  $('vaxSaveBtn').addEventListener('click', function () {
+    if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
+    var req = [];
+    $('vaxConfigBody').querySelectorAll('[data-vax-req]').forEach(function (el) { if (el.checked) req.push(el.value); });
+    api('spaVaxConfigSave', { pin: staffPin, required: req }).then(function (res) {
+      requiredVax = res.required || req;
+      knownVax = res.known || knownVax;
+      drawVaxConfig();
+      toast('Vaccination settings saved 💉');
     }).catch(function (e) { toast(e.message); });
   });
 

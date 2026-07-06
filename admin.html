@@ -76,6 +76,7 @@
     .cust__contact a { color: var(--pink); }
     .chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.6rem; }
     .chip { background: var(--blush); color: var(--pink-deep); font-size: 0.76rem; padding: 0.25rem 0.7rem; border-radius: 100px; font-weight: 600; }
+    .chip--muted { background: #f7edf2; color: var(--ink-soft); }
     .bal { font-size: 0.8rem; font-weight: 600; }
     .bal--owed { color: #b3243b; }
     .bal--clear { color: #1c7a48; }
@@ -89,6 +90,8 @@
     .dogrow .mini { padding: 0.5rem 0.7rem; }
     .note { background: #fbeef4; border-radius: 10px; padding: 0.5rem 0.7rem; font-size: 0.82rem; margin-bottom: 0.4rem; }
     .note small { color: var(--ink-soft); display: block; font-size: 0.68rem; }
+    .blastMeta { font-size: 0.8rem; color: var(--ink-soft); margin-top: 0.55rem; }
+    .pinbox { border: 1px dashed #efd7e3; border-radius: 12px; padding: .9rem; margin: .6rem 0; background: #fffafc; }
 
     /* Modal */
     .modal { position: fixed; inset: 0; background: rgba(58,34,48,0.55); display: none; align-items: center; justify-content: center; padding: 1rem; z-index: 100; }
@@ -139,6 +142,8 @@
     .recur__row label { font-size: 0.76rem; color: var(--ink-soft); display: inline-flex; align-items: center; gap: 0.3rem; }
     .recur__row input[type=time], .recur__row input[type=date] { font-size: 0.8rem; padding: 0.25rem 0.35rem; border: 1px solid #e6c9d6; border-radius: 8px; }
     .recur__del { margin-left: auto; }
+    .recur.closed { border-color: #f0bcc6; background: #fff7f9; }
+    .cal__cell--closed { background: #fbe3ea; color: #8f1d30; border-color: #eaa9b8; background-image: repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(179,36,59,.09) 4px, rgba(179,36,59,.09) 8px); }
     .dayed { border: 1.5px solid #f0bcc6; border-radius: 12px; padding: 0.8rem 0.9rem; margin-top: 0.8rem; background: #fffafc; }
     .dayed__chk { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 600; color: var(--ink); }
     @media (max-width: 520px) { .row2 { grid-template-columns: 1fr; } .dogrow { grid-template-columns: 1fr 1fr; } }
@@ -249,13 +254,16 @@
       <section data-panel="messages" class="hidden">
         <div class="card">
           <h3 style="font-family:var(--serif);margin-bottom:.6rem">Promo blast</h3>
-          <p class="muted" style="margin-bottom:.8rem">Reach every customer at once. <strong>Email</strong> opens your Mail app (all addresses hidden in BCC). <strong>Text blast</strong> opens Messages on your phone with all customer numbers &amp; your note pre-filled. <strong>Push</strong> sends a browser notification to everyone who tapped “Get alerts” on the site.</p>
+          <p class="muted" style="margin-bottom:.8rem">Reach every customer at once. <strong>Email</strong> opens your Mail app (all addresses hidden in BCC). <strong>Text blast</strong> opens Messages on your phone with all customer numbers &amp; your note pre-filled. <strong>Send as texts now</strong> sends private Twilio texts to opted-in customers. <strong>Push</strong> sends a browser notification to everyone who tapped “Get alerts” on the site.</p>
           <div class="field"><textarea id="blastBody" placeholder="Your promo message…"></textarea></div>
           <div style="display:flex;gap:.5rem;flex-wrap:wrap">
             <button class="btn btn--primary" id="blastEmail">✉️ Email all</button>
             <button class="btn btn--soft" id="blastSms">📲 Text blast</button>
+            <button class="btn btn--soft" id="blastSmsNow">💬 Send as texts now (<span id="smsCount">0</span>)</button>
             <button class="btn btn--soft" id="blastPush">🔔 Push (<span id="pushCount">0</span>)</button>
           </div>
+          <p class="blastMeta" id="smsReady">Checking text sending…</p>
+          <p class="blastMeta">Only sent to customers who haven't opted out. Requires A2P 10DLC registration on your Twilio number. Every text includes “Reply STOP to opt out.”</p>
           <div class="status" id="blastStatus"></div>
         </div>
         <div class="card">
@@ -374,6 +382,8 @@
       <div class="field"><label>Phone numbers</label><div id="phoneRows"></div><button class="mini" id="addPhone" type="button">＋ Add phone</button></div>
       <div class="field"><label>Email</label><input type="email" id="cEmail" placeholder="name@email.com" /></div>
       <div class="field"><label>Address</label><input type="text" id="cAddress" placeholder="Optional" /></div>
+      <label class="toggle"><input type="checkbox" id="cSmsOptIn" checked /> OK to text promotions</label>
+      <p class="muted" id="cSmsOptNote" style="margin:.35rem 0 .8rem"></p>
       <div class="field"><label>Dogs</label><div id="dogRows"></div><button class="mini" id="addDog" type="button">＋ Add dog</button></div>
       <div class="field"><label>Notes / history</label><div id="noteList"></div>
         <div class="inline"><input type="text" id="newNote" placeholder="Add a note…" style="flex:1" /><button class="mini" id="addNote" type="button">Add</button></div>
@@ -414,6 +424,9 @@
         <div class="field"><label>Role / title</label><input type="text" id="sfRole" placeholder="Groomer & Stylist" /></div>
         <div class="field"><label>Phone</label><input type="tel" id="sfPhone" placeholder="304-555-1234" /></div>
       </div>
+      <div class="field"><label>Access Role</label>
+        <select id="sfAccessRole"><option value="owner">Owner</option><option value="manager">Manager</option><option value="stylist">Stylist</option></select>
+      </div>
       <div class="field"><label>Services / tags</label><input type="text" id="sfTags" placeholder="Grooms · Baths · De-Shed" /></div>
       <label class="toggle"><input type="checkbox" id="sfActive" checked /> Active (shown on the website)</label>
 
@@ -428,6 +441,17 @@
         <div class="row2">
           <div class="field" style="margin:0"><label>Their SMS number</label><input type="tel" id="sfSmsFrom" placeholder="+1304…" disabled /></div>
           <label class="toggle" style="margin-top:1.7rem"><input type="checkbox" id="sfSmsEnabled" disabled /> Enable (later)</label>
+        </div>
+      </div>
+
+      <div class="pinbox" id="sfPinBox">
+        <label style="display:block;font-weight:600;color:var(--ink-soft);font-size:.82rem;margin-bottom:.4rem">Console sign-in PIN</label>
+        <p class="muted" style="margin:0 0 .6rem">Gives this stylist their own spa-console sign-in; their role controls what they can do.</p>
+        <p class="muted" id="sfPinState" style="margin:0 0 .6rem"></p>
+        <div class="inline">
+          <input type="text" id="sfPin" inputmode="numeric" pattern="\d{4,8}" placeholder="4–8 digit PIN" style="flex:1;min-width:140px" />
+          <button class="mini" id="staffSetPin" type="button">Set PIN</button>
+          <button class="mini mini--danger" id="staffClearPin" type="button">Clear PIN</button>
         </div>
       </div>
 
@@ -452,6 +476,12 @@
         <label>Recurring working blocks</label>
         <div id="recurRows"></div>
         <button class="mini" id="addRecur" type="button" style="margin-top:.5rem">+ Add recurring block</button>
+      </div>
+
+      <div class="field">
+        <label>Closed for holidays &amp; vacations</label>
+        <div id="closedRows"></div>
+        <button class="mini" id="addClosed" type="button" style="margin-top:.5rem">+ Add closure</button>
       </div>
 
       <div class="cal">
