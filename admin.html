@@ -388,8 +388,34 @@
       <div class="field"><label>Notes / history</label><div id="noteList"></div>
         <div class="inline"><input type="text" id="newNote" placeholder="Add a note…" style="flex:1" /><button class="mini" id="addNote" type="button">Add</button></div>
       </div>
+      <div class="field">
+        <label>Visit history <span class="muted" id="visitCount"></span></label>
+        <div id="visitList"><p class="muted">Save the customer first to see their grooming visits.</p></div>
+        <details id="addVisitWrap" style="margin-top:.6rem">
+          <summary style="cursor:pointer;color:var(--pink,#e6398b);font-weight:600;font-size:.85rem">＋ Add a past / walk-in visit</summary>
+          <div style="margin-top:.6rem;display:grid;gap:.45rem">
+            <div class="inline">
+              <input type="date" id="vDate" style="flex:1" />
+              <input type="text" id="vPet" placeholder="Pup" style="flex:1" />
+            </div>
+            <input type="text" id="vServices" placeholder="What was done (e.g. Full groom, Bath, Deshed)" />
+            <div class="inline">
+              <input type="text" id="vStylist" placeholder="Groomer" style="flex:1" />
+              <input type="number" id="vTotal" placeholder="$ total" step="0.01" min="0" style="flex:0 0 90px" />
+              <input type="number" id="vTip" placeholder="$ tip" step="0.01" min="0" style="flex:0 0 80px" />
+              <select id="vPay" style="flex:0 0 auto"><option value="">Pay…</option><option>Cash</option><option>Card</option><option>Venmo</option><option>Cash App</option><option>PayPal</option><option>Zelle</option></select>
+            </div>
+            <input type="text" id="vNotes" placeholder="Notes (optional)" />
+            <div class="inline" style="justify-content:flex-end"><button class="mini" id="saveVisit" type="button">Save visit</button></div>
+            <div class="status" id="visitStatus"></div>
+          </div>
+        </details>
+      </div>
       <div class="inline" style="justify-content:space-between;margin-top:1rem">
-        <button class="mini mini--danger" id="deleteCustomer" type="button">Delete</button>
+        <div class="inline">
+          <button class="mini mini--danger" id="deleteCustomer" type="button">Delete</button>
+          <button class="mini" id="syncSquareCust" type="button" style="display:none">⬍ Sync to Square</button>
+        </div>
         <div class="inline">
           <button class="mini" id="cancelCustomer" type="button">Cancel</button>
           <button class="btn btn--primary" id="saveCustomer" type="button" style="padding:.6rem 1.3rem;font-size:.84rem">Save</button>

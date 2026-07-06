@@ -62,6 +62,53 @@ async function sq(cfg, path, { method = "GET", body } = {}) {
 const uuid = () => crypto.randomUUID();
 
 /* --------------------------------------------------------------- Locations */
+/**
+ * Record a completed (already-paid) sale in Square as an Order with an EXTERNAL
+ * tender, so a walk-in / back-filled grooming visit shows up in the merchant's
+ * Square sales history. Requires ORDERS_WRITE (+ PAYMENTS_WRITE for the tender).
+ * Best-effort: if the order posts but the tender can't (missing PAYMENTS scope),
+ * we return { paid:false, warn } rather than throwing.
+ */
+async function recordSale(cfg, { customerId, amount, tip, lineName, note, payMethod, referenceId }) {
+  const tipC = Math.round(Math.max(0, Number(tip) || 0) * 100);
+  const baseC = Math.max(0, Math.round((Math.max(0, Number(amount) || 0) - tipC / 100) * 100));
+  const order = {
+    location_id: cfg.locationId,
+    customer_id: customerId || undefined,
+    reference_id: referenceId ? String(referenceId).slice(0, 40) : undefined,
+    line_items: [{
+      name: String(lineName || "Grooming").slice(0, 500),
+      quantity: "1",
+      base_price_money: { amount: baseC, currency: "USD" },
+    }],
+  };
+  const created = await sq(cfg, "/v2/orders", { method: "POST", body: { idempotency_key: uuid(), order } });
+  const ord = created.order || {};
+  const orderId = ord.id || "";
+  const orderTotalC = (ord.total_money && ord.total_money.amount) || baseC;
+  // Nothing to tender on a $0 visit — the order alone records what was done.
+  if (orderTotalC <= 0 && tipC <= 0) return { orderId, paid: false };
+  try {
+    const pay = await sq(cfg, "/v2/payments", {
+      method: "POST",
+      body: {
+        idempotency_key: uuid(),
+        source_id: "EXTERNAL",
+        amount_money: { amount: Math.max(orderTotalC, 0), currency: "USD" },
+        tip_money: tipC > 0 ? { amount: tipC, currency: "USD" } : undefined,
+        order_id: orderId,
+        location_id: cfg.locationId,
+        customer_id: customerId || undefined,
+        external_details: { type: /card|credit/i.test(payMethod || "") ? "CARD" : "OTHER", source: "The Pink Poodle CRM" },
+        note: note ? String(note).slice(0, 500) : undefined,
+      },
+    });
+    return { orderId, paid: true, paymentId: (pay.payment && pay.payment.id) || "" };
+  } catch (e) {
+    return { orderId, paid: false, warn: e.message || "Could not record the payment in Square (order was created)." };
+  }
+}
+
 async function listLocations(cfg) {
   const j = await sq(cfg, "/v2/locations");
   return (j.locations || []).map((l) => ({
@@ -285,4 +332,5 @@ module.exports = {
   resolveStartAt,
   createPaymentLink,
   getOrderPaid,
+  recordSale,
 };

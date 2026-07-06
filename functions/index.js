@@ -474,6 +474,103 @@ exports.pinkPoodleApi = onRequest(
           return res.json({ ok: true });
         }
 
+        // Visit history for a CRM customer — pulled from the real grooming
+        // tickets (pp_spa_tickets), matched by any of the customer's phone
+        // numbers. This is the single source of truth the spa console writes to,
+        // so admin and the salon console always agree.
+        case "crmVisits": {
+          const raw = Array.isArray(body.phones) ? body.phones.slice() : [];
+          if (body.phone) raw.push(body.phone);
+          const phones = [...new Set(raw.map((p) => normalizePhone(String(p || ""))).filter(Boolean))].slice(0, 8);
+          if (!phones.length) return res.json({ ok: true, visits: [] });
+          const seen = {};
+          const visits = [];
+          for (const ph of phones) {
+            const snap = await db.collection(SPA_TICKETS).where("owner.phone", "==", ph).limit(500).get();
+            snap.docs.forEach((d) => {
+              if (seen[d.id]) return;
+              seen[d.id] = 1;
+              const x = d.data() || {};
+              visits.push({
+                id: d.id,
+                code: x.code || "",
+                date: x.date || "",
+                createdAt: x.createdAt && x.createdAt.toMillis ? x.createdAt.toMillis() : 0,
+                pet: { name: (x.pet && x.pet.name) || "", breed: (x.pet && x.pet.breed) || "" },
+                services: Array.isArray(x.services) ? x.services : [],
+                stylist: x.stylist || "",
+                total: Math.round((Number(x.finalTotal) || 0) * 100) / 100,
+                est: Math.round((Number(x.est) || 0) * 100) / 100,
+                tip: Math.round((Number(x.tip) || 0) * 100) / 100,
+                paid: !!x.paid,
+                payMethod: x.payMethod || "",
+                step: typeof x.step === "number" ? x.step : 0,
+                cancelled: !!x.cancelled,
+                voided: !!x.voided,
+                notes: (x.pet && x.pet.notes) || "",
+                source: x.source || "",
+                squareOrderId: x.squareOrderId || "",
+              });
+            });
+          }
+          visits.sort((a, b) => String(b.date).localeCompare(String(a.date)) || (b.createdAt - a.createdAt));
+          return res.json({ ok: true, visits: visits.slice(0, 500) });
+        }
+
+        // Log a past / walk-in visit straight into the grooming-ticket history so
+        // it shows for the customer here AND in the salon console, and rolls into
+        // loyalty + revenue reports. Posts a balanced ledger entry when paid.
+        case "crmAddVisit": {
+          const v = body.visit || {};
+          const owner = {
+            name: String(v.ownerName || "").slice(0, 80),
+            phone: normalizePhone(String(v.phone || "")),
+            email: String(v.email || "").slice(0, 120),
+          };
+          if (!owner.phone) return res.status(400).json({ error: "This customer needs a phone number before a visit can be attached." });
+          const date = isIsoDate(v.date) ? v.date : todayET();
+          const services = (Array.isArray(v.services) ? v.services : String(v.services || "").split(","))
+            .map((s) => String(s).trim().slice(0, 60)).filter(Boolean).slice(0, 20);
+          const total = Math.max(0, Math.round((Number(v.total) || 0) * 100) / 100);
+          const tip = Math.max(0, Math.round((Number(v.tip) || 0) * 100) / 100);
+          const paid = total > 0;
+          const payMethod = String(v.payMethod || (paid ? "Cash" : "")).slice(0, 30);
+          let ledgerId = null;
+          if (paid) {
+            const assetAcct = /card|credit|square/i.test(payMethod) ? "Card / Bank" : /venmo|cash ?app|paypal|zelle/i.test(payMethod) ? payMethod : "Cash";
+            const subtotal = Math.max(0, Math.round((total - tip) * 100) / 100);
+            const lines = [{ acct: "Grooming Revenue", cr: subtotal }];
+            if (tip > 0) lines.push({ acct: "Tips", cr: tip });
+            lines.push({ acct: assetAcct, dr: total });
+            ledgerId = await postLedger({ date, memo: `${String(v.petName || "Client").slice(0, 40)} — back-filled visit (${payMethod})`, ref: "", lines }).catch(() => null);
+          }
+          const rec = {
+            code: genCode(),
+            step: 6,
+            cancelled: false,
+            voided: false,
+            paid,
+            date,
+            pet: { name: String(v.petName || "").slice(0, 40), breed: String(v.breed || "").slice(0, 40), size: "", notes: String(v.notes || "").slice(0, 300) },
+            owner,
+            services,
+            items: [],
+            stylist: String(v.stylist || "").slice(0, 40),
+            est: total,
+            finalTotal: total,
+            tip,
+            payMethod,
+            ledgerId,
+            source: "crm-backfill",
+            confirmed: true,
+            createdAt: now(),
+            paidAt: paid ? now() : null,
+          };
+          const r = await db.collection(SPA_TICKETS).add(rec);
+          await upsertClientFromBooking(rec).catch(() => {});
+          return res.json({ ok: true, id: r.id });
+        }
+
         /* ---------------- Settings ---------------- */
         case "settingsGet": {
           const s = await db.collection(SETTINGS).doc("main").get();
@@ -898,6 +995,45 @@ exports.pinkPoodleApi = onRequest(
             return res.json({ ok: true, bookingId: booking && booking.id, status: booking && booking.status });
           } catch (e) {
             return res.status(502).json({ error: "Square: " + (e.message || "could not create booking"), squareErrors: e.squareErrors || null });
+          }
+        }
+
+        // Push one grooming visit (ticket) into Square as a completed sale, so it
+        // appears in the merchant's Square sales history. Best-effort: if the
+        // account/token can't create orders or record payments, we surface that
+        // clearly instead of failing silently.
+        case "squareSyncVisit": {
+          const cfg = await loadSquareConfig();
+          if (!square.enabled(cfg)) return res.status(400).json({ error: "Square isn't connected yet (need a token and a saved location)." });
+          if (!body.id) return res.status(400).json({ error: "Missing visit id." });
+          const doc = await db.collection(SPA_TICKETS).doc(String(body.id)).get();
+          if (!doc.exists) return res.status(404).json({ error: "Visit not found." });
+          const t = doc.data() || {};
+          if (t.squareOrderId) return res.json({ ok: true, already: true, squareOrderId: t.squareOrderId });
+          const owner = t.owner || {};
+          try {
+            let customerId = "";
+            if (owner.phone || owner.email || owner.name) {
+              const { customer } = await square.findOrCreateCustomer(cfg, {
+                name: owner.name, phone: normalizePhone(owner.phone || ""), email: owner.email,
+                note: "Synced from The Pink Poodle CRM",
+              });
+              customerId = (customer && customer.id) || "";
+            }
+            const services = Array.isArray(t.services) ? t.services : [];
+            const sale = await square.recordSale(cfg, {
+              customerId,
+              amount: Number(t.finalTotal) || Number(t.est) || 0,
+              tip: Number(t.tip) || 0,
+              lineName: (services.join(", ") || "Grooming").slice(0, 500),
+              note: `${(t.pet && t.pet.name) || "Pet"} · ${t.date || ""}`.slice(0, 200),
+              payMethod: t.payMethod || "",
+              referenceId: t.code || "",
+            });
+            await doc.ref.set({ squareOrderId: sale.orderId || "", squareSyncedAt: now() }, { merge: true }).catch(() => {});
+            return res.json({ ok: true, squareOrderId: sale.orderId, paid: sale.paid, warn: sale.warn || null });
+          } catch (e) {
+            return res.status(502).json({ error: "Square: " + (e.message || "could not record this visit"), squareErrors: e.squareErrors || null });
           }
         }
 

@@ -20,6 +20,8 @@ let KEY = '';
 let customers = [];
 let settings = {};
 let msgCtx = null; // { type, cust }
+let editCust = null; // customer currently open in the editor
+let squareConnected = null; // cached Square connection status (null = unknown)
 
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
@@ -357,6 +359,7 @@ function renderNotes() {
 }
 function openEditor(c) {
   c = c || { dogs: [], notes: [] };
+  editCust = c;
   $('custModalTitle').textContent = c.id ? 'Edit customer' : 'New customer';
   $('cId').value = c.id || '';
   $('cName').value = c.name || ''; $('cEmail').value = c.email || ''; $('cAddress').value = c.address || '';
@@ -374,6 +377,9 @@ function openEditor(c) {
   editNotes = (c.notes || []).slice();
   renderNotes();
   $('deleteCustomer').style.display = c.id ? '' : 'none';
+  resetVisitForm(c);
+  loadVisits(c);
+  updateSquareBtn();
   clr($('custModalStatus'));
   custModal.classList.add('open');
 }
@@ -407,6 +413,130 @@ $('deleteCustomer').addEventListener('click', async () => {
   try { await api('crmDelete', { id }); custModal.classList.remove('open'); loadCustomers(); }
   catch (err) { setStatus($('custModalStatus'), '❌ ' + err.message, 'err'); }
 });
+
+/* ---------- visit history (from real grooming tickets, matched by phone) ---------- */
+function custPhones(c) {
+  const list = (c && c.phones && c.phones.length) ? c.phones.map((p) => p.number) : [];
+  if (c && c.phone) list.push(c.phone);
+  return [...new Set(list.filter(Boolean))];
+}
+function resetVisitForm(c) {
+  $('vDate').value = new Date().toISOString().slice(0, 10);
+  $('vPet').value = (c && c.dogs && c.dogs[0] && c.dogs[0].name) || '';
+  $('vServices').value = ''; $('vStylist').value = ''; $('vTotal').value = ''; $('vTip').value = '';
+  $('vPay').value = ''; $('vNotes').value = '';
+  clr($('visitStatus'));
+  const wrap = $('addVisitWrap'); if (wrap) wrap.open = false;
+  const noPhone = !custPhones(c).length;
+  $('saveVisit').disabled = noPhone;
+  $('saveVisit').title = noPhone ? 'Add a phone number and save the customer first' : '';
+}
+function stepLabel(v) {
+  if (v.voided) return '<span class="chip chip--muted">voided</span>';
+  if (v.cancelled) return '<span class="chip chip--muted">cancelled</span>';
+  if (v.step >= 6 || v.paid) return '';
+  return '<span class="chip">in progress</span>';
+}
+function renderVisits(visits) {
+  const box = $('visitList');
+  const active = visits.filter((v) => !v.voided);
+  $('visitCount').textContent = active.length ? '· ' + active.length + ' visit' + (active.length === 1 ? '' : 's') : '';
+  if (!visits.length) { box.innerHTML = '<p class="muted">No grooming visits on file yet for this customer.</p>'; return; }
+  box.innerHTML = visits.map((v) => {
+    const dollars = v.total || v.est || 0;
+    const money = dollars ? '$' + dollars.toFixed(2) + (v.paid ? '' : ' <span class="muted">(est)</span>') : '';
+    const svc = (v.services || []).join(', ');
+    const sqBtn = squareConnected && !v.squareOrderId && !v.voided && !v.cancelled
+      ? '<button class="mini vSquare" data-id="' + esc(v.id) + '" title="Push this sale to Square">→ Square</button>'
+      : (v.squareOrderId ? '<span class="chip chip--muted" title="Synced to Square">✓ Square</span>' : '');
+    return '<div class="visit" style="border:1px solid var(--line,#f0d3e4);border-radius:12px;padding:.55rem .7rem;margin:.4rem 0">' +
+      '<div class="inline" style="justify-content:space-between;gap:.5rem">' +
+        '<div><b>' + esc(v.date || '—') + '</b>' + (v.pet && v.pet.name ? ' · 🐾 ' + esc(v.pet.name) : '') + ' ' + stepLabel(v) + '</div>' +
+        '<div class="inline" style="gap:.4rem">' + (money ? '<b>' + money + '</b>' : '') + sqBtn + '</div>' +
+      '</div>' +
+      (svc ? '<div class="muted" style="font-size:.85rem;margin-top:.2rem">' + esc(svc) + '</div>' : '') +
+      '<div class="muted" style="font-size:.8rem;margin-top:.15rem">' +
+        (v.stylist ? '💇 ' + esc(v.stylist) + ' · ' : '') +
+        (v.paid && v.payMethod ? esc(v.payMethod) : '') +
+        (v.tip ? ' · tip $' + v.tip.toFixed(2) : '') +
+      '</div>' +
+      (v.notes ? '<div class="muted" style="font-size:.8rem;margin-top:.15rem">📝 ' + esc(v.notes) + '</div>' : '') +
+    '</div>';
+  }).join('');
+  box.querySelectorAll('.vSquare').forEach((btn) => btn.addEventListener('click', () => syncVisitToSquare(btn.dataset.id, btn)));
+}
+async function loadVisits(c) {
+  const box = $('visitList');
+  const phones = custPhones(c);
+  if (!c || !c.id || !phones.length) {
+    box.innerHTML = '<p class="muted">Save the customer (with a phone number) to see their grooming visits.</p>';
+    $('visitCount').textContent = '';
+    return;
+  }
+  box.innerHTML = '<p class="muted"><span class="spin"></span> Loading visits…</p>';
+  try {
+    const r = await api('crmVisits', { phones });
+    renderVisits(r.visits || []);
+  } catch (err) {
+    box.innerHTML = '<p class="muted">Could not load visits: ' + esc(err.message) + '</p>';
+  }
+}
+$('saveVisit').addEventListener('click', async () => {
+  const c = editCust || {};
+  const phone = custPhones(c)[0];
+  if (!phone) return setStatus($('visitStatus'), 'Add a phone number and save the customer first.', 'err');
+  const visit = {
+    ownerName: c.name || '', phone, email: c.email || '',
+    date: $('vDate').value, petName: $('vPet').value.trim(),
+    services: $('vServices').value.trim(), stylist: $('vStylist').value.trim(),
+    total: parseFloat($('vTotal').value || '0') || 0, tip: parseFloat($('vTip').value || '0') || 0,
+    payMethod: $('vPay').value, notes: $('vNotes').value.trim(),
+  };
+  if (!visit.petName && !visit.services) return setStatus($('visitStatus'), 'Add at least the pup or what was done.', 'err');
+  setStatus($('visitStatus'), '<span class="spin"></span>Saving visit…', 'info');
+  try {
+    await api('crmAddVisit', { visit });
+    setStatus($('visitStatus'), '✅ Visit added to history.', 'ok');
+    resetVisitForm(c);
+    loadVisits(c);
+  } catch (err) { setStatus($('visitStatus'), '❌ ' + err.message, 'err'); }
+});
+
+/* ---------- Square sync ---------- */
+async function ensureSquare() {
+  if (squareConnected !== null) return squareConnected;
+  try { const r = await api('squareStatus'); squareConnected = !!(r.square && r.square.connected); }
+  catch (_) { squareConnected = false; }
+  return squareConnected;
+}
+async function updateSquareBtn() {
+  const btn = $('syncSquareCust');
+  const connected = await ensureSquare();
+  const show = connected && editCust && editCust.id;
+  btn.style.display = show ? '' : 'none';
+  // Re-render visits so the per-visit → Square buttons appear once we know status.
+  if (connected && editCust && editCust.id) loadVisits(editCust);
+}
+$('syncSquareCust').addEventListener('click', async () => {
+  const c = editCust; if (!c || !c.id) return;
+  setStatus($('custModalStatus'), '<span class="spin"></span>Syncing to Square…', 'info');
+  try {
+    const r = await api('squareSyncCustomer', { customer: { id: c.id, name: c.name, phone: custPhones(c)[0] || '', email: c.email } });
+    setStatus($('custModalStatus'), r.created ? '✅ Added to your Square customer directory.' : '✅ Matched an existing Square customer.', 'ok');
+  } catch (err) { setStatus($('custModalStatus'), '❌ ' + err.message, 'err'); }
+});
+async function syncVisitToSquare(id, btn) {
+  if (!id) return;
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await api('squareSyncVisit', { id });
+    setStatus($('visitStatus'), r.warn ? '⚠️ Sale recorded in Square, but ' + r.warn : '✅ Visit pushed to Square.', r.warn ? 'info' : 'ok');
+    loadVisits(editCust);
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = '→ Square'; }
+    setStatus($('visitStatus'), '❌ ' + err.message, 'err');
+  }
+}
 
 /* ================= COMPOSE MESSAGE ================= */
 const msgModal = $('msgModal');
