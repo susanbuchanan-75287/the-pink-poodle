@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <title>Pink Poodle Spa — Book & Track</title>
+  <meta name="description" content="Book grooming appointments, manage your pup's profile, and track their spa day at The Pink Poodle in Princeton, WV." />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#b83372" />
+  <link rel="manifest" href="spa.webmanifest" />
+  <link rel="apple-touch-icon" href="assets/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Parisienne&family=Playfair+Display:wght@500;600;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="spa.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <div class="topbar__logo">The Pink Poodle</div>
+        <div class="topbar__sub">Spa &amp; Booking</div>
+      </div>
+      <div class="topbar__spacer"></div>
+      <button class="topbar__staff" id="staffToggle" type="button">🔒 Staff</button>
+    </header>
+
+    <!-- ============ HOME / BOOK ============ -->
+    <section class="view" data-view="home">
+      <h1>Book a spa day 🛁</h1>
+      <p class="lead">Pick your pup, choose their pampering, and pick a time. We'll text you back to confirm.</p>
+
+      <h2>Whose spa day is it?</h2>
+      <div id="petPicker"></div>
+      <button class="btn btn--soft btn--sm" id="addPetInline" type="button">＋ Add a pet</button>
+
+      <h2>Choose services</h2>
+      <div id="svcList"></div>
+
+      <h2>Add-on pampering <span class="muted">(optional)</span></h2>
+      <div class="pills" id="addonList"></div>
+
+      <h2>Preferred stylist</h2>
+      <div class="pills" id="stylistList"></div>
+
+      <h2>When works for you?</h2>
+      <div class="row2">
+        <div class="field"><label>Date</label><input type="date" id="bkDate" /></div>
+        <div class="field"><label>Time</label>
+          <select id="bkTime">
+            <option value="">Any time</option>
+            <option>Morning (9–12)</option>
+            <option>Midday (12–2)</option>
+            <option>Afternoon (2–5)</option>
+            <option value="exact">Pick exact…</option>
+          </select>
+        </div>
+      </div>
+      <div class="field hidden" id="exactWrap"><label>Exact time</label><input type="time" id="bkExact" /></div>
+
+      <h2>A few quick OKs 🐾</h2>
+      <div class="card">
+        <label class="check"><input type="checkbox" id="cVax" /> <span>My pet's vaccinations (rabies) are current.</span></label>
+        <label class="check"><input type="checkbox" id="cHandle" /> <span>I consent to gentle grooming &amp; handling, and understand severely matted coats may need a humane shave-down for my pet's comfort.</span></label>
+        <label class="check"><input type="checkbox" id="cContact" /> <span>The Pink Poodle may text/call me about this appointment.</span></label>
+        <div class="field" style="margin-top:0.6rem"><label>Sign (type your name)</label><input type="text" id="cSign" placeholder="Your name" /></div>
+      </div>
+
+      <div class="total" id="totalBar">
+        <div><span class="muted" style="color:#f7c9dd">Estimated</span><br><span class="total__amt" id="totalAmt">$0</span> <small id="totalDur">Select services</small></div>
+        <button class="btn btn--gold" id="bookBtn" type="button">Request →</button>
+      </div>
+    </section>
+
+    <!-- ============ PETS ============ -->
+    <section class="view hidden" data-view="pets">
+      <h1>My pups 🐩</h1>
+      <p class="lead">Their profiles help us groom them just right — every time.</p>
+      <div id="petCards"></div>
+      <button class="btn btn--primary btn--block" id="addPetBtn" type="button">＋ Add a pet</button>
+    </section>
+
+    <!-- ============ TRACK ============ -->
+    <section class="view hidden" data-view="track">
+      <h1>Spa day status ✨</h1>
+      <p class="lead">Watch your pup get pampered in real time.</p>
+      <div id="trackBody"></div>
+
+      <h2>Loyalty</h2>
+      <div class="card">
+        <p class="muted">Every 6th full groom is on us! 🎁</p>
+        <div class="stamps" id="stamps"></div>
+      </div>
+    </section>
+
+    <!-- ============ STAFF BOARD ============ -->
+    <section class="view hidden" data-view="staff">
+      <h1>Status board 🧼</h1>
+      <p class="lead">Tap a pup to move them along their spa day.</p>
+      <div class="board__filter pills" id="boardFilter"></div>
+      <button class="btn btn--soft btn--sm" id="walkInBtn" type="button">＋ Walk-in</button>
+      <div id="board" style="margin-top:0.8rem"></div>
+    </section>
+
+    <!-- ============ NAV ============ -->
+    <nav class="nav" id="nav">
+      <button class="nav__btn on" data-go="home" type="button"><span class="ico">🛁</span>Book</button>
+      <button class="nav__btn" data-go="pets" type="button"><span class="ico">🐩</span>Pets</button>
+      <button class="nav__btn" data-go="track" type="button"><span class="ico">✨</span>Track</button>
+      <button class="nav__btn nav__staff hidden" data-go="staff" type="button"><span class="ico">🧼</span>Board</button>
+    </nav>
+  </div>
+
+  <!-- Pet editor modal -->
+  <div class="modal" id="petModal">
+    <div class="modal__box">
+      <h2 id="petModalTitle">Add a pet</h2>
+      <input type="hidden" id="pId" />
+      <div class="field" style="text-align:center">
+        <div class="pet__photo" id="pPhotoPreview" style="width:72px;height:72px;margin:0 auto 0.4rem">🐾</div>
+        <label class="linkbtn" style="cursor:pointer">📷 Add photo<input type="file" id="pPhoto" accept="image/*" capture="environment" hidden /></label>
+      </div>
+      <div class="field"><label>Name</label><input type="text" id="pName" placeholder="e.g. Paris" /></div>
+      <div class="row2">
+        <div class="field"><label>Breed</label><input type="text" id="pBreed" placeholder="Poodle mix" /></div>
+        <div class="field"><label>Age</label><input type="text" id="pAge" placeholder="3 yrs" /></div>
+      </div>
+      <div class="field"><label>Size</label>
+        <select id="pSize"><option>Small (0–20 lb)</option><option>Medium (20–50 lb)</option><option>Large (50–90 lb)</option><option>X-Large (90+ lb)</option></select>
+      </div>
+      <div class="field"><label>Allergies / special notes</label><textarea id="pNotes" placeholder="Sensitive skin, hates the dryer, loves peanut butter…"></textarea></div>
+      <label class="check"><input type="checkbox" id="pVax" /> <span>Rabies vaccination is current</span></label>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
+        <button class="btn btn--soft" id="petDelete" type="button" style="display:none">Delete</button>
+        <button class="btn btn--soft" id="petCancel" type="button">Cancel</button>
+        <button class="btn btn--primary btn--block" id="petSave" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Staff PIN modal -->
+  <div class="modal" id="pinModal">
+    <div class="modal__box" style="text-align:center">
+      <h2>Staff access</h2>
+      <p class="muted" style="margin-bottom:0.8rem">Enter the salon PIN to open the status board.</p>
+      <input type="password" id="pinInput" inputmode="numeric" placeholder="PIN" style="text-align:center;letter-spacing:0.3em;font-size:1.2rem" />
+      <div style="display:flex;gap:0.5rem;margin-top:0.9rem">
+        <button class="btn btn--soft" id="pinCancel" type="button">Cancel</button>
+        <button class="btn btn--primary btn--block" id="pinGo" type="button">Unlock</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="spa.js"></script>
+</body>
+</html>

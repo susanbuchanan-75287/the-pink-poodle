@@ -1,0 +1,15 @@
+{
+  "name": "The Pink Poodle Spa",
+  "short_name": "Poodle Spa",
+  "description": "Book grooming, manage pet profiles, and track your pup's spa day at The Pink Poodle.",
+  "start_url": "spa.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fdeef4",
+  "theme_color": "#b83372",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

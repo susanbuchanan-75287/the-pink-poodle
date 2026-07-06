@@ -43,6 +43,24 @@ The booking form keeps its friendly "request a time" flow, but every request can
 
 Config lives in Firestore (`pp_settings/square`); only the token is a secret. Implementation is `functions/square.js` (raw Square REST v2 — no SDK dependency, keeping the 0-vuln posture). Admin actions: `squareStatus`, `squareConnect`, `squareSaveConfig`, `squareBookings`, `squareSyncCustomer`, `squareCreateBooking`.
 
+## Spa App 🛁 (spa.html) — installable PWA
+A lightweight, self-contained web app for pet owners **and** the front desk, at `https://pinkpoodle.dog/spa.html` (also linked in the site nav as "🛁 Spa App"). It's installable to a phone home screen (Web App Manifest + service worker for offline use) and needs **no backend or paid service** — all state lives in the browser's `localStorage`, and a new booking still offers a real **SMS deep-link** so the request reaches Britni's phone.
+
+**Customer side** (research-backed 2025 feature set):
+- **Pet profiles** — multiple pets with photo (auto-downscaled), breed, age, size, allergies/notes, and a rabies-vaccination flag.
+- **Service menu + live total** — bath, full groom, puppy's first groom, de-shed, nails, teeth, plus optional add-ons; the estimate updates live and adds a size surcharge for grooming services.
+- **Booking builder** — pick pet → services → preferred stylist (Britni / Jenefer / Hannah / no preference) → date & time.
+- **Digital consent** — vaccination, gentle-handling/de-matting, and contact OKs with a typed e-signature (required before a request is created).
+- **Status tracking** — a live progress tracker (Requested → Checked in → Bathing → Grooming → Finishing → Ready for pickup → Picked up) with a REF code.
+- **Loyalty** — a 6-paw stamp card; every 6th full groom is free.
+
+**Staff status board** (bottom-nav "Board", behind a salon **PIN** — default `2748`, the shop line's last four):
+- Today's pups as tickets with services, stylist, notes, and estimate.
+- One-tap **Next / Back** to move a pup along the pipeline; **Mark ready** fires a browser notification (and toast). **Walk-in** quick check-in. Marking a full groom "Picked up" adds a loyalty stamp.
+- Cross-tab live sync (via the `storage` event) so a booking on one tab appears on the board on another instantly — ideal as a front-desk kiosk tab.
+
+**Files:** `spa.html`, `spa.css`, `spa.js`, `spa.webmanifest`, `spa-sw.js`, and generated icons `assets/icon-192.png` / `assets/icon-512.png`. **Not indexed** (`robots: noindex`). The PIN is a lightweight guard, not real auth — the board is client-side only. **Future upgrade:** point the ticket/pet stores at the existing `pinkPoodleApi` Firestore backend for true cross-device sync and to link tickets to the Salon Console CRM and Square.
+
 ## Photo upload portal 🖼️
 Britni can add photos to the website gallery herself — no code, no commits.
 
