@@ -221,3 +221,13 @@ textarea { min-height: 74px; resize: vertical; }
 .modal__box { background: var(--white); border-radius: var(--radius); padding: 1.3rem; width: 100%; max-width: 400px; max-height: 90vh; overflow-y: auto; }
 .empty { text-align: center; color: var(--ink-soft); padding: 2rem 1rem; }
 .empty .big { font-size: 2.5rem; }
+
+/* ---------- Staff subnav + panes ---------- */
+.staff__subnav { position: sticky; top: 56px; z-index: 5; background: var(--bg, #fff8fb); padding: 0.4rem 0; margin-bottom: 0.4rem; }
+.staff__pane.hidden { display: none; }
+
+/* ---------- Ledger table ---------- */
+.ledger { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 0.4rem; }
+.ledger th { text-align: left; font-weight: 600; color: var(--ink-soft); border-bottom: 1px solid var(--pink-soft); padding: 0.25rem 0.3rem; }
+.ledger td { padding: 0.25rem 0.3rem; border-bottom: 1px solid #f3e2ea; }
+.ledger tr:last-child td { border-bottom: none; }

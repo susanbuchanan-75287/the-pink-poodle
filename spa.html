@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
   <title>Pink Poodle Spa — Book & Track</title>
-  <meta name="description" content="Book grooming appointments, manage your pup's profile, and track their spa day at The Pink Poodle in Princeton, WV." />
+  <meta name="description" content="Book grooming appointments and track your pup's spa day at The Pink Poodle in Princeton, WV." />
   <meta name="robots" content="noindex" />
   <meta name="theme-color" content="#b83372" />
   <link rel="manifest" href="spa.webmanifest" />
@@ -28,11 +28,19 @@
     <!-- ============ HOME / BOOK ============ -->
     <section class="view" data-view="home">
       <h1>Book a spa day 🛁</h1>
-      <p class="lead">Pick your pup, choose their pampering, and pick a time. We'll text you back to confirm.</p>
+      <p class="lead">Tell us about your pup, choose their pampering, and pick a time. We'll text you back to confirm.</p>
 
-      <h2>Whose spa day is it?</h2>
-      <div id="petPicker"></div>
-      <button class="btn btn--soft btn--sm" id="addPetInline" type="button">＋ Add a pet</button>
+      <h2>Whose spa day is it? 🐩</h2>
+      <div class="card">
+        <div class="field"><label>Pet's name</label><input type="text" id="pName" placeholder="e.g. Paris" autocomplete="off" /></div>
+        <div class="row2">
+          <div class="field"><label>Breed</label><input type="text" id="pBreed" placeholder="Poodle mix" autocomplete="off" /></div>
+          <div class="field"><label>Size</label>
+            <select id="pSize"><option>Small (0–20 lb)</option><option>Medium (20–50 lb)</option><option>Large (50–90 lb)</option><option>X-Large (90+ lb)</option></select>
+          </div>
+        </div>
+        <div class="field"><label>Allergies / special notes <span class="muted">(optional)</span></label><textarea id="pNotes" placeholder="Sensitive skin, hates the dryer, loves peanut butter…"></textarea></div>
+      </div>
 
       <h2>Choose services</h2>
       <div id="svcList"></div>
@@ -58,6 +66,15 @@
       </div>
       <div class="field hidden" id="exactWrap"><label>Exact time</label><input type="time" id="bkExact" /></div>
 
+      <h2>How can we reach you? 📱</h2>
+      <div class="card">
+        <div class="field"><label>Your name</label><input type="text" id="oName" placeholder="Your name" autocomplete="name" /></div>
+        <div class="row2">
+          <div class="field"><label>Mobile</label><input type="tel" id="oPhone" placeholder="(304) 555-1234" autocomplete="tel" inputmode="tel" /></div>
+          <div class="field"><label>Email <span class="muted">(optional)</span></label><input type="email" id="oEmail" placeholder="you@email.com" autocomplete="email" inputmode="email" /></div>
+        </div>
+      </div>
+
       <h2>A few quick OKs 🐾</h2>
       <div class="card">
         <label class="check"><input type="checkbox" id="cVax" /> <span>My pet's vaccinations (rabies) are current.</span></label>
@@ -66,87 +83,177 @@
         <div class="field" style="margin-top:0.6rem"><label>Sign (type your name)</label><input type="text" id="cSign" placeholder="Your name" /></div>
       </div>
 
+      <!-- anti-spam honeypot (hidden from humans) -->
+      <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Company<input type="text" id="hp" tabindex="-1" autocomplete="off" /></label></div>
+
       <div class="total" id="totalBar">
         <div><span class="muted" style="color:#f7c9dd">Estimated</span><br><span class="total__amt" id="totalAmt">$0</span> <small id="totalDur">Select services</small></div>
         <button class="btn btn--gold" id="bookBtn" type="button">Request →</button>
       </div>
     </section>
 
-    <!-- ============ PETS ============ -->
-    <section class="view hidden" data-view="pets">
-      <h1>My pups 🐩</h1>
-      <p class="lead">Their profiles help us groom them just right — every time.</p>
-      <div id="petCards"></div>
-      <button class="btn btn--primary btn--block" id="addPetBtn" type="button">＋ Add a pet</button>
-    </section>
-
     <!-- ============ TRACK ============ -->
     <section class="view hidden" data-view="track">
       <h1>Spa day status ✨</h1>
-      <p class="lead">Watch your pup get pampered in real time.</p>
-      <div id="trackBody"></div>
-
-      <h2>Loyalty</h2>
+      <p class="lead">Enter your booking code to watch your pup get pampered in real time.</p>
       <div class="card">
-        <p class="muted">Every 6th full groom is on us! 🎁</p>
-        <div class="stamps" id="stamps"></div>
+        <div class="row2" style="align-items:end">
+          <div class="field"><label>Booking code (REF)</label><input type="text" id="trackCode" placeholder="e.g. AB3F9K" style="text-transform:uppercase;letter-spacing:0.15em" autocomplete="off" /></div>
+          <button class="btn btn--primary" id="trackGo" type="button" style="height:44px">Track →</button>
+        </div>
+        <p class="muted" style="margin:0.5rem 0 0">Your code was shown right after you booked, and is in your confirmation text.</p>
       </div>
+      <div id="trackBody" style="margin-top:0.8rem"></div>
     </section>
 
-    <!-- ============ STAFF BOARD ============ -->
+    <!-- ============ STAFF ============ -->
     <section class="view hidden" data-view="staff">
-      <h1>Status board 🧼</h1>
-      <p class="lead">Tap a pup to move them along their spa day.</p>
-      <div class="board__filter pills" id="boardFilter"></div>
-      <button class="btn btn--soft btn--sm" id="walkInBtn" type="button">＋ Walk-in</button>
-      <div id="board" style="margin-top:0.8rem"></div>
+      <div class="staff__subnav pills" id="staffSubnav">
+        <button type="button" class="pill sel" data-sub="board">🧼 Board</button>
+        <button type="button" class="pill" data-sub="ledger">📒 Ledger</button>
+        <button type="button" class="pill" data-sub="contacts">📇 Contacts</button>
+        <button type="button" class="pill" data-sub="fees">⚙️ Fees &amp; PIN</button>
+      </div>
+
+      <!-- Board -->
+      <div class="staff__pane" data-sub="board">
+        <h1>Status board 🧼</h1>
+        <p class="lead">Tap a pup to move them along their spa day.</p>
+        <div class="board__filter pills" id="boardFilter"></div>
+        <div style="display:flex;gap:0.5rem;margin:0.4rem 0">
+          <button class="btn btn--soft btn--sm" id="walkInBtn" type="button">＋ Walk-in</button>
+          <button class="btn btn--soft btn--sm" id="boardRefresh" type="button">↻ Refresh</button>
+        </div>
+        <div id="board" style="margin-top:0.4rem"></div>
+      </div>
+
+      <!-- Ledger -->
+      <div class="staff__pane hidden" data-sub="ledger">
+        <h1>Double-entry ledger 📒</h1>
+        <p class="lead">Every checkout posts a balanced journal entry. Debits always equal credits.</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem">
+          <button class="btn btn--primary btn--sm" id="ledgerAddBtn" type="button">＋ Manual entry</button>
+          <button class="btn btn--soft btn--sm" id="ledgerCsvBtn" type="button">⬇ Export CSV</button>
+          <button class="btn btn--soft btn--sm" id="ledgerRefresh" type="button">↻ Refresh</button>
+        </div>
+        <div id="ledgerBalances" class="card"></div>
+        <div id="ledgerBody" style="margin-top:0.6rem"></div>
+      </div>
+
+      <!-- Contacts -->
+      <div class="staff__pane hidden" data-sub="contacts">
+        <h1>Client contacts 📇</h1>
+        <p class="lead">Everyone who has booked, with their pups and visit count.</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem">
+          <button class="btn btn--soft btn--sm" id="contactsCsvBtn" type="button">⬇ Export CSV</button>
+          <button class="btn btn--soft btn--sm" id="contactsVcfBtn" type="button">⬇ Export vCard</button>
+          <button class="btn btn--soft btn--sm" id="contactsRefresh" type="button">↻ Refresh</button>
+        </div>
+        <div id="contactsBody"></div>
+      </div>
+
+      <!-- Fees & PIN -->
+      <div class="staff__pane hidden" data-sub="fees">
+        <h1>Fees &amp; PIN ⚙️</h1>
+        <p class="lead">Set the extra fees that appear at checkout, and change the staff PIN.</p>
+        <div id="feesBody"></div>
+        <button class="btn btn--soft btn--sm" id="feeAddBtn" type="button">＋ Add fee</button>
+        <div style="margin-top:0.6rem"><button class="btn btn--primary btn--block" id="feeSaveBtn" type="button">Save fees</button></div>
+        <div class="card" style="margin-top:1rem">
+          <h2 style="margin-top:0">Change staff PIN</h2>
+          <div class="field"><label>New PIN (4–8 digits)</label><input type="password" id="newPin" inputmode="numeric" placeholder="New PIN" /></div>
+          <button class="btn btn--soft btn--block" id="pinSaveBtn" type="button">Update PIN</button>
+        </div>
+      </div>
     </section>
 
     <!-- ============ NAV ============ -->
     <nav class="nav" id="nav">
       <button class="nav__btn on" data-go="home" type="button"><span class="ico">🛁</span>Book</button>
-      <button class="nav__btn" data-go="pets" type="button"><span class="ico">🐩</span>Pets</button>
       <button class="nav__btn" data-go="track" type="button"><span class="ico">✨</span>Track</button>
-      <button class="nav__btn nav__staff hidden" data-go="staff" type="button"><span class="ico">🧼</span>Board</button>
+      <button class="nav__btn nav__staff hidden" data-go="staff" type="button"><span class="ico">🧼</span>Staff</button>
     </nav>
-  </div>
-
-  <!-- Pet editor modal -->
-  <div class="modal" id="petModal">
-    <div class="modal__box">
-      <h2 id="petModalTitle">Add a pet</h2>
-      <input type="hidden" id="pId" />
-      <div class="field" style="text-align:center">
-        <div class="pet__photo" id="pPhotoPreview" style="width:72px;height:72px;margin:0 auto 0.4rem">🐾</div>
-        <label class="linkbtn" style="cursor:pointer">📷 Add photo<input type="file" id="pPhoto" accept="image/*" capture="environment" hidden /></label>
-      </div>
-      <div class="field"><label>Name</label><input type="text" id="pName" placeholder="e.g. Paris" /></div>
-      <div class="row2">
-        <div class="field"><label>Breed</label><input type="text" id="pBreed" placeholder="Poodle mix" /></div>
-        <div class="field"><label>Age</label><input type="text" id="pAge" placeholder="3 yrs" /></div>
-      </div>
-      <div class="field"><label>Size</label>
-        <select id="pSize"><option>Small (0–20 lb)</option><option>Medium (20–50 lb)</option><option>Large (50–90 lb)</option><option>X-Large (90+ lb)</option></select>
-      </div>
-      <div class="field"><label>Allergies / special notes</label><textarea id="pNotes" placeholder="Sensitive skin, hates the dryer, loves peanut butter…"></textarea></div>
-      <label class="check"><input type="checkbox" id="pVax" /> <span>Rabies vaccination is current</span></label>
-      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
-        <button class="btn btn--soft" id="petDelete" type="button" style="display:none">Delete</button>
-        <button class="btn btn--soft" id="petCancel" type="button">Cancel</button>
-        <button class="btn btn--primary btn--block" id="petSave" type="button">Save</button>
-      </div>
-    </div>
   </div>
 
   <!-- Staff PIN modal -->
   <div class="modal" id="pinModal">
     <div class="modal__box" style="text-align:center">
       <h2>Staff access</h2>
-      <p class="muted" style="margin-bottom:0.8rem">Enter the salon PIN to open the status board.</p>
+      <p class="muted" style="margin-bottom:0.8rem">Enter the salon PIN to open the staff tools.</p>
       <input type="password" id="pinInput" inputmode="numeric" placeholder="PIN" style="text-align:center;letter-spacing:0.3em;font-size:1.2rem" />
       <div style="display:flex;gap:0.5rem;margin-top:0.9rem">
         <button class="btn btn--soft" id="pinCancel" type="button">Cancel</button>
         <button class="btn btn--primary btn--block" id="pinGo" type="button">Unlock</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Checkout modal -->
+  <div class="modal" id="checkoutModal">
+    <div class="modal__box">
+      <h2 id="checkoutTitle">Checkout</h2>
+      <div id="coItems"></div>
+      <button class="btn btn--soft btn--sm" id="coAddItem" type="button">＋ Add line item</button>
+      <div class="row2" style="margin-top:0.6rem">
+        <div class="field"><label>Discount ($)</label><input type="number" id="coDiscount" min="0" step="1" value="0" inputmode="decimal" /></div>
+        <div class="field"><label>Tip ($)</label><input type="number" id="coTip" min="0" step="1" value="0" inputmode="decimal" /></div>
+      </div>
+      <div class="field"><label>Payment method</label>
+        <select id="coPay"><option>Cash</option><option>Card</option><option>Square</option><option>Venmo</option><option>Cash App</option><option>PayPal</option><option>Zelle</option></select>
+      </div>
+      <div class="total" style="position:static;margin:0.6rem 0 0"><div><span class="muted" style="color:#f7c9dd">Total</span><br><span class="total__amt" id="coTotal">$0</span></div></div>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
+        <button class="btn btn--soft" id="coCancel" type="button">Cancel</button>
+        <button class="btn btn--gold btn--block" id="coSave" type="button">Take payment</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cancel modal -->
+  <div class="modal" id="cancelModal">
+    <div class="modal__box">
+      <h2>Cancel appointment</h2>
+      <div class="field"><label>Reason</label><input type="text" id="cxReason" placeholder="No-show, client request…" /></div>
+      <div class="field"><label>No-show / cancellation fee ($)</label><input type="number" id="cxFee" min="0" step="1" value="0" inputmode="decimal" /></div>
+      <p class="muted">A fee &gt; $0 posts a ledger entry (DR Cash / CR Cancellation Fees).</p>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
+        <button class="btn btn--soft" id="cxCancel" type="button">Back</button>
+        <button class="btn btn--primary btn--block" id="cxSave" type="button">Confirm cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual ledger entry modal -->
+  <div class="modal" id="ledgerModal">
+    <div class="modal__box">
+      <h2>Manual journal entry</h2>
+      <div class="field"><label>Date</label><input type="date" id="leDate" /></div>
+      <div class="field"><label>Memo</label><input type="text" id="leMemo" placeholder="What is this for?" /></div>
+      <div class="row2">
+        <div class="field"><label>Debit account</label><input type="text" id="leDebit" placeholder="Supplies" list="acctList" /></div>
+        <div class="field"><label>Credit account</label><input type="text" id="leCredit" placeholder="Cash" list="acctList" /></div>
+      </div>
+      <datalist id="acctList">
+        <option>Cash</option><option>Card / Bank</option><option>Grooming Revenue</option><option>Tips</option>
+        <option>Cancellation Fees</option><option>Supplies</option><option>Rent</option><option>Utilities</option><option>Owner Draw</option>
+      </datalist>
+      <div class="field"><label>Amount ($)</label><input type="number" id="leAmount" min="0" step="1" inputmode="decimal" /></div>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
+        <button class="btn btn--soft" id="leCancel" type="button">Cancel</button>
+        <button class="btn btn--primary btn--block" id="leSave" type="button">Post entry</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Walk-in modal -->
+  <div class="modal" id="walkinModal">
+    <div class="modal__box">
+      <h2>Walk-in check-in</h2>
+      <div class="field"><label>Pet's name</label><input type="text" id="wiName" placeholder="e.g. Paris" /></div>
+      <div class="field"><label>Stylist</label><select id="wiStylist"></select></div>
+      <div style="display:flex;gap:0.5rem;margin-top:0.8rem">
+        <button class="btn btn--soft" id="wiCancel" type="button">Cancel</button>
+        <button class="btn btn--primary btn--block" id="wiSave" type="button">Check in</button>
       </div>
     </div>
   </div>

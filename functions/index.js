@@ -1166,3 +1166,326 @@ exports.pinkPoodleReset = onRequest(
     }
   }
 );
+
+/* =====================================================================
+   Pink Poodle Spa app — LIVE backend.
+   Customer actions (spaBook / spaTrack / spaCancelByCode / spaMenu) are
+   public + rate-limited. Staff actions require the salon spa PIN
+   (pp_config/spa.pin, default "0221"). ALL state is server-side
+   (Firestore) — the app persists nothing in the browser.
+   ===================================================================== */
+const SPA_TICKETS = "pp_spa_tickets";
+const SPA_LEDGER = "pp_spa_ledger";
+const SPA_PIN_DEFAULT = "0221";
+const SPA_STEPS = ["Requested", "Checked in", "Bathing", "Grooming", "Finishing", "Ready for pickup", "Picked up"];
+const DEFAULT_FEES = [
+  { label: "De-matting fee", amount: 15 },
+  { label: "Late pickup fee", amount: 10 },
+  { label: "No-show fee", amount: 25 },
+  { label: "Special handling", amount: 10 },
+  { label: "Nail grind", amount: 8 },
+  { label: "Flea & tick bath", amount: 12 },
+];
+
+function todayET() {
+  // YYYY-MM-DD in America/New_York (en-CA formats as ISO-like).
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+async function spaPinValue() {
+  try {
+    const snap = await db.collection("pp_config").doc("spa").get();
+    const d = snap.exists ? snap.data() : null;
+    if (d && d.pin) return String(d.pin);
+  } catch (e) {
+    console.error("spaPin read failed", e && e.message);
+  }
+  return SPA_PIN_DEFAULT;
+}
+async function verifySpaPin(pin) {
+  const p = String(pin || "").trim();
+  if (!p) return false;
+  return timingSafeEqualStr(p, await spaPinValue());
+}
+
+async function loadFees() {
+  try {
+    const snap = await db.collection("pp_config").doc("spaFees").get();
+    if (snap.exists && Array.isArray(snap.data().fees)) return snap.data().fees;
+  } catch (e) {
+    console.error("loadFees failed", e && e.message);
+  }
+  return DEFAULT_FEES;
+}
+
+function genCode() {
+  const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I
+  let s = "";
+  for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)];
+  return s;
+}
+
+function spaTicketPublic(doc) {
+  const d = doc.data() || {};
+  const step = typeof d.step === "number" ? d.step : 0;
+  return {
+    id: doc.id,
+    code: d.code || "",
+    petName: (d.pet && d.pet.name) || "",
+    services: d.services || [],
+    stylist: d.stylist || "",
+    step,
+    status: SPA_STEPS[step] || "Requested",
+    cancelled: !!d.cancelled,
+    requestedDate: d.requestedDate || "",
+    requestedTime: d.requestedTime || "",
+  };
+}
+function spaTicketFull(doc) {
+  const d = doc.data() || {};
+  return Object.assign(spaTicketPublic(doc), {
+    date: d.date || "",
+    pet: d.pet || {},
+    owner: d.owner || {},
+    petNotes: (d.pet && d.pet.notes) || "",
+    est: d.est || 0,
+    items: d.items || [],
+    paid: !!d.paid,
+    payMethod: d.payMethod || "",
+    tip: d.tip || 0,
+    discount: d.discount || 0,
+    finalTotal: d.finalTotal || 0,
+    cancelReason: d.cancelReason || "",
+    createdAt: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0,
+  });
+}
+
+/** Post a balanced double-entry journal record. Throws if debits != credits. */
+async function postLedger({ date, memo, ref, lines }) {
+  let dr = 0;
+  let cr = 0;
+  const clean = (lines || [])
+    .map((l) => {
+      const d = Math.max(0, Number(l.dr) || 0);
+      const c = Math.max(0, Number(l.cr) || 0);
+      dr += d;
+      cr += c;
+      return { acct: String(l.acct || "Uncategorized").slice(0, 40), dr: Math.round(d * 100) / 100, cr: Math.round(c * 100) / 100 };
+    })
+    .filter((l) => l.dr || l.cr);
+  if (!clean.length) return null;
+  if (Math.abs(dr - cr) > 0.005) throw new Error("Ledger entry not balanced");
+  const rec = { date: date || todayET(), memo: String(memo || "").slice(0, 120), ref: String(ref || "").slice(0, 20), lines: clean, at: now() };
+  const r = await db.collection(SPA_LEDGER).add(rec);
+  return r.id;
+}
+
+exports.pinkPoodleSpa = onRequest(
+  {
+    cors: [/^https?:\/\/([a-z0-9-]+\.)*pinkpoodle\.dog$/, /^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/],
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    region: "us-central1",
+  },
+  async (req, res) => {
+    if (req.method === "OPTIONS") return res.status(204).send("");
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+    const b = req.body || {};
+    const action = b.action;
+    const ip = clientIp(req);
+    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode"];
+
+    try {
+      if (PUBLIC.indexOf(action) < 0) {
+        if (!(await verifySpaPin(b.pin))) {
+          const ok = await checkRateLimit("spaauth", ip, { max: 10, windowMs: 10 * 60 * 1000 });
+          if (!ok) return res.status(429).json({ error: "Too many attempts. Try again later." });
+          return res.status(401).json({ error: "Wrong PIN." });
+        }
+      }
+
+      switch (action) {
+        /* ---------------- public / customer ---------------- */
+        case "spaMenu":
+          return res.json({ ok: true, fees: await loadFees() });
+
+        case "spaBook": {
+          const ok = await checkRateLimit("spabook", ip, { max: 8, windowMs: 10 * 60 * 1000 });
+          if (!ok) return res.status(429).json({ error: "Too many requests. Please text 304-921-2748 to book." });
+          if (b.company) return res.json({ ok: true, code: "" }); // honeypot
+          const pet = b.pet || {};
+          const owner = b.owner || {};
+          const petName = String(pet.name || "").trim().slice(0, 40);
+          if (!petName) return res.status(400).json({ error: "Please add your pet's name." });
+          const services = (Array.isArray(b.services) ? b.services : []).map((s) => String(s).slice(0, 60)).slice(0, 20);
+          if (!services.length) return res.status(400).json({ error: "Choose at least one service." });
+          const items = (Array.isArray(b.items) ? b.items : []).map((it) => ({ label: String(it.label || "").slice(0, 60), amount: Math.max(0, Number(it.amount) || 0) })).slice(0, 30);
+          const rec = {
+            code: genCode(),
+            step: 0,
+            cancelled: false,
+            paid: false,
+            date: todayET(),
+            pet: { name: petName, breed: String(pet.breed || "").slice(0, 40), size: String(pet.size || "").slice(0, 40), notes: String(pet.notes || "").slice(0, 300) },
+            owner: { name: String(owner.name || "").slice(0, 80), phone: normalizePhone(owner.phone), email: String(owner.email || "").slice(0, 120) },
+            services,
+            items,
+            stylist: String(b.stylist || "No preference").slice(0, 40),
+            requestedDate: String(b.requestedDate || "").slice(0, 40),
+            requestedTime: String(b.requestedTime || "").slice(0, 40),
+            est: Math.max(0, Number(b.est) || 0),
+            createdAt: now(),
+          };
+          const r = await db.collection(SPA_TICKETS).add(rec);
+          return res.json({ ok: true, code: rec.code, id: r.id });
+        }
+
+        case "spaTrack": {
+          const codeUp = String(b.code || "").trim().toUpperCase().slice(0, 10);
+          if (!codeUp) return res.status(400).json({ error: "Enter your booking code." });
+          const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
+          if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
+          return res.json({ ok: true, ticket: spaTicketPublic(snap.docs[0]) });
+        }
+
+        case "spaCancelByCode": {
+          const ok = await checkRateLimit("spacancel", ip, { max: 10, windowMs: 10 * 60 * 1000 });
+          if (!ok) return res.status(429).json({ error: "Too many requests." });
+          const codeUp = String(b.code || "").trim().toUpperCase().slice(0, 10);
+          const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
+          if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
+          const doc = snap.docs[0];
+          if ((doc.data().step || 0) >= 2) return res.status(400).json({ error: "This spa day is already underway — please call the salon." });
+          await doc.ref.set({ cancelled: true, cancelReason: "Cancelled by customer", cancelledAt: now() }, { merge: true });
+          return res.json({ ok: true });
+        }
+
+        /* ---------------- staff (PIN required) ---------------- */
+        case "spaBoard": {
+          const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(200).get();
+          const today = todayET();
+          const tickets = snap.docs.map(spaTicketFull).filter((t) => t.date === today || (t.step < 6 && !t.cancelled));
+          return res.json({ ok: true, tickets, steps: SPA_STEPS });
+        }
+
+        case "spaAdvance": {
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const step = Math.max(0, Math.min(6, Number(b.step)));
+          await db.collection(SPA_TICKETS).doc(b.id).set({ step, cancelled: false }, { merge: true });
+          return res.json({ ok: true });
+        }
+
+        case "spaWalkin": {
+          const petName = String(b.petName || "").trim().slice(0, 40);
+          if (!petName) return res.status(400).json({ error: "Pet name required." });
+          const rec = { code: genCode(), step: 1, cancelled: false, paid: false, date: todayET(), pet: { name: petName }, owner: {}, services: ["Walk-in"], items: [], stylist: String(b.stylist || "Britni").slice(0, 40), requestedTime: "now", est: 0, createdAt: now() };
+          const r = await db.collection(SPA_TICKETS).add(rec);
+          return res.json({ ok: true, id: r.id, code: rec.code });
+        }
+
+        case "spaCheckout": {
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const ref = db.collection(SPA_TICKETS).doc(b.id);
+          const doc = await ref.get();
+          if (!doc.exists) return res.status(404).json({ error: "Ticket not found." });
+          const t = doc.data();
+          const items = (Array.isArray(b.items) ? b.items : []).map((it) => ({ label: String(it.label || "").slice(0, 60), amount: Math.max(0, Number(it.amount) || 0) })).slice(0, 40);
+          const discount = Math.max(0, Number(b.discount) || 0);
+          const tip = Math.max(0, Number(b.tip) || 0);
+          const payMethod = String(b.payMethod || "Cash").slice(0, 30);
+          const gross = items.reduce((s, it) => s + it.amount, 0);
+          const subtotal = Math.max(0, Math.round((gross - discount) * 100) / 100);
+          const total = Math.round((subtotal + tip) * 100) / 100;
+          const assetAcct = /card|credit|square/i.test(payMethod) ? "Card / Bank" : /venmo|cash ?app|paypal|zelle/i.test(payMethod) ? payMethod : "Cash";
+          const lines = [{ acct: assetAcct, dr: total }, { acct: "Grooming Revenue", cr: subtotal }];
+          if (tip > 0) lines.push({ acct: "Tips", cr: tip });
+          const ledgerId = total > 0 ? await postLedger({ memo: `${(t.pet && t.pet.name) || "Client"} — ${payMethod}`, ref: t.code, lines }) : null;
+          await ref.set({ paid: true, payMethod, items, discount, tip, finalTotal: total, ledgerId, paidAt: now(), step: Math.max(t.step || 0, 6) }, { merge: true });
+          return res.json({ ok: true, total });
+        }
+
+        case "spaCancel": {
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          const ref = db.collection(SPA_TICKETS).doc(b.id);
+          const doc = await ref.get();
+          if (!doc.exists) return res.status(404).json({ error: "Ticket not found." });
+          const t = doc.data();
+          const fee = Math.max(0, Number(b.noShowFee) || 0);
+          let ledgerId = null;
+          if (fee > 0) {
+            ledgerId = await postLedger({ memo: `${(t.pet && t.pet.name) || "Client"} — cancellation/no-show fee`, ref: t.code, lines: [{ acct: "Cash", dr: fee }, { acct: "Cancellation Fees", cr: fee }] });
+          }
+          await ref.set({ cancelled: true, cancelReason: String(b.reason || "Cancelled").slice(0, 120), noShowFee: fee, cancelLedgerId: ledgerId, cancelledAt: now() }, { merge: true });
+          return res.json({ ok: true });
+        }
+
+        case "spaDelete": {
+          if (!b.id) return res.status(400).json({ error: "Missing id." });
+          await db.collection(SPA_TICKETS).doc(b.id).delete();
+          return res.json({ ok: true });
+        }
+
+        case "spaLedger": {
+          const snap = await db.collection(SPA_LEDGER).orderBy("at", "desc").limit(500).get();
+          const entries = snap.docs.map((d) => {
+            const x = d.data();
+            return { id: d.id, date: x.date, memo: x.memo, ref: x.ref, lines: x.lines || [] };
+          });
+          const bal = {};
+          entries.forEach((e) => e.lines.forEach((l) => { bal[l.acct] = (bal[l.acct] || 0) + (l.dr || 0) - (l.cr || 0); }));
+          const balances = Object.keys(bal).map((k) => ({ acct: k, balance: Math.round(bal[k] * 100) / 100 })).sort((a, c) => a.acct.localeCompare(c.acct));
+          return res.json({ ok: true, entries, balances });
+        }
+
+        case "spaLedgerAdd": {
+          const amount = Math.max(0, Number(b.amount) || 0);
+          if (!amount) return res.status(400).json({ error: "Enter an amount." });
+          const debit = String(b.debit || "").slice(0, 40);
+          const credit = String(b.credit || "").slice(0, 40);
+          if (!debit || !credit) return res.status(400).json({ error: "Pick a debit and a credit account." });
+          const id = await postLedger({ date: b.date, memo: b.memo, ref: b.ref, lines: [{ acct: debit, dr: amount }, { acct: credit, cr: amount }] });
+          return res.json({ ok: true, id });
+        }
+
+        case "spaFees":
+          return res.json({ ok: true, fees: await loadFees() });
+
+        case "spaFeesSave": {
+          const fees = (Array.isArray(b.fees) ? b.fees : []).map((f) => ({ label: String(f.label || "").slice(0, 40), amount: Math.max(0, Number(f.amount) || 0) })).filter((f) => f.label).slice(0, 40);
+          await db.collection("pp_config").doc("spaFees").set({ fees, updatedAt: now() });
+          return res.json({ ok: true, fees });
+        }
+
+        case "spaContacts": {
+          const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(1000).get();
+          const map = {};
+          snap.docs.forEach((d) => {
+            const x = d.data();
+            const o = x.owner || {};
+            const key = (o.phone || o.email || o.name || "").toLowerCase();
+            if (!key) return;
+            if (!map[key]) map[key] = { name: o.name || "", phone: o.phone || "", email: o.email || "", pets: [], visits: 0 };
+            map[key].visits++;
+            const pn = (x.pet && x.pet.name) || "";
+            if (pn && map[key].pets.indexOf(pn) < 0) map[key].pets.push(pn);
+          });
+          return res.json({ ok: true, contacts: Object.values(map) });
+        }
+
+        case "spaSetPin": {
+          const np = String(b.newPin || "").trim();
+          if (!/^\d{4,8}$/.test(np)) return res.status(400).json({ error: "PIN must be 4–8 digits." });
+          await db.collection("pp_config").doc("spa").set({ pin: np, updatedAt: now() }, { merge: true });
+          return res.json({ ok: true });
+        }
+
+        default:
+          return res.status(400).json({ error: "Unknown action." });
+      }
+    } catch (e) {
+      console.error("spa error", action, e && e.message);
+      return res.status(500).json({ error: "Something went wrong. Please try again." });
+    }
+  }
+);

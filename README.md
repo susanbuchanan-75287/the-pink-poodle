@@ -43,23 +43,22 @@ The booking form keeps its friendly "request a time" flow, but every request can
 
 Config lives in Firestore (`pp_settings/square`); only the token is a secret. Implementation is `functions/square.js` (raw Square REST v2 — no SDK dependency, keeping the 0-vuln posture). Admin actions: `squareStatus`, `squareConnect`, `squareSaveConfig`, `squareBookings`, `squareSyncCustomer`, `squareCreateBooking`.
 
-## Spa App 🛁 (spa.html) — installable PWA
-A lightweight, self-contained web app for pet owners **and** the front desk, at `https://pinkpoodle.dog/spa.html` (also linked in the site nav as "🛁 Spa App"). It's installable to a phone home screen (Web App Manifest + service worker for offline use) and needs **no backend or paid service** — all state lives in the browser's `localStorage`, and a new booking still offers a real **SMS deep-link** so the request reaches Britni's phone.
+## Spa App 🛁 (spa.html) — installable PWA, **live backend**
+A web app for pet owners **and** the front desk, at `https://pinkpoodle.dog/spa.html` (also linked in the site nav as "🛁 Spa App"). It's installable to a phone home screen (Web App Manifest + service worker) and is **fully wired to a live backend** — the `pinkPoodleSpa` Cloud Function (`https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodleSpa`), with all data in **Firestore**. **Nothing is stored in the browser** — no `localStorage`, no `sessionStorage`, no cookies. Bookings sync across every device (phone, kiosk, back office) in real time, and a new booking still offers a real **SMS deep-link** so the request also lands on Britni's phone.
 
-**Customer side** (research-backed 2025 feature set):
-- **Pet profiles** — multiple pets with photo (auto-downscaled), breed, age, size, allergies/notes, and a rabies-vaccination flag.
-- **Service menu + live total** — bath, full groom, puppy's first groom, de-shed, nails, teeth, plus optional add-ons; the estimate updates live and adds a size surcharge for grooming services.
-- **Booking builder** — pick pet → services → preferred stylist (Britni / Jenefer / Hannah / no preference) → date & time.
+**Customer side:**
+- **Booking** — describe the pup inline (name, breed, size, notes), pick services + optional add-ons + preferred stylist (Britni / Jenefer / Hannah / no preference) + date & time; a live estimate updates as you go (with a size surcharge on grooming services).
+- **Owner contact** — name, mobile, optional email (so the salon can confirm), plus a hidden honeypot for spam bots.
 - **Digital consent** — vaccination, gentle-handling/de-matting, and contact OKs with a typed e-signature (required before a request is created).
-- **Status tracking** — a live progress tracker (Requested → Checked in → Bathing → Grooming → Finishing → Ready for pickup → Picked up) with a REF code.
-- **Loyalty** — a 6-paw stamp card; every 6th full groom is free.
+- **Track by code** — after booking you get a 6-char **REF code**; enter it on the Track tab to watch the live pipeline (Requested → Checked in → Bathing → Grooming → Finishing → Ready for pickup → Picked up). Customers can self-cancel before their pup is checked in.
 
-**Staff status board** (bottom-nav "Board", behind a salon **PIN** — default `2748`, the shop line's last four):
-- Today's pups as tickets with services, stylist, notes, and estimate.
-- One-tap **Next / Back** to move a pup along the pipeline; **Mark ready** fires a browser notification (and toast). **Walk-in** quick check-in. Marking a full groom "Picked up" adds a loyalty stamp.
-- Cross-tab live sync (via the `storage` event) so a booking on one tab appears on the board on another instantly — ideal as a front-desk kiosk tab.
+**Staff tools** (bottom-nav "Staff", behind a salon **PIN** — default `0221`, changeable in-app). The PIN is verified server-side on every staff call, and PIN guesses are brute-force rate-limited (10 / 10 min per IP). Four tabs:
+- **🧼 Board** — today's pups as tickets with services, stylist, owner contact, notes, estimate. One-tap **Next / Back** along the pipeline; **Mark ready** fires a browser notification. **Walk-in** quick check-in. **Checkout** (line items + discount + tip + payment method) and **Cancel** (with optional no-show fee).
+- **📒 Ledger** — a real **double-entry** journal. Every checkout posts a balanced entry (DR Cash/Card = total; CR Grooming Revenue = subtotal; CR Tips = tip), a no-show fee posts DR Cash / CR Cancellation Fees, and you can add manual entries. Account balances roll up live; export to **CSV**.
+- **📇 Contacts** — everyone who has booked, de-duplicated by phone/email, with their pups and visit count; export to **CSV** or **vCard**.
+- **⚙️ Fees & PIN** — edit the checkout fee list and change the staff PIN.
 
-**Files:** `spa.html`, `spa.css`, `spa.js`, `spa.webmanifest`, `spa-sw.js`, and generated icons `assets/icon-192.png` / `assets/icon-512.png`. **Not indexed** (`robots: noindex`). The PIN is a lightweight guard, not real auth — the board is client-side only. **Future upgrade:** point the ticket/pet stores at the existing `pinkPoodleApi` Firestore backend for true cross-device sync and to link tickets to the Salon Console CRM and Square.
+**Files:** `spa.html`, `spa.css`, `spa.js`, `spa.webmanifest`, `spa-sw.js`, and icons `assets/icon-192.png` / `assets/icon-512.png`. **Not indexed** (`robots: noindex`). Backend lives in `functions/index.js` (`exports.pinkPoodleSpa`); collections: `pp_spa_tickets`, `pp_spa_ledger`, config in `pp_config/spa` (PIN) and `pp_config/spaFees` (fees). Public actions (book/track/cancel-by-code/menu) are rate-limited; staff actions require the PIN. **Note:** because nothing persists in the browser, customers track by REF code (no saved "my pups" list) and staff re-enter the PIN after a reload. The Contacts export exposes owner phone/email behind only the 4-digit PIN — fine for a single trusted front desk, but rotate the PIN if a device is lost.
 
 ## Photo upload portal 🖼️
 Britni can add photos to the website gallery herself — no code, no commits.
