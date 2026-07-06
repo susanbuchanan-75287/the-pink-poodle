@@ -148,6 +148,20 @@
   }
   $('pSize').addEventListener('change', renderTotal);
   $('bkTime').addEventListener('change', function () { $('exactWrap').classList.toggle('hidden', this.value !== 'exact'); });
+  // Reveal the vaccination file picker only when "Upload proof now" is chosen.
+  (function () {
+    function sync() { $('spVaxFileWrap').classList.toggle('hidden', !$('spVaxUpload').checked); }
+    if ($('spVaxUpload')) $('spVaxUpload').addEventListener('change', sync);
+    if ($('spVaxBring')) $('spVaxBring').addEventListener('change', sync);
+  })();
+  function readAsDataUrl(file) {
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onload = function () { resolve(r.result); };
+      r.onerror = function () { reject(new Error('read failed')); };
+      r.readAsDataURL(file);
+    });
+  }
 
   /* =================================================================
      CREATE BOOKING → live backend
@@ -160,6 +174,11 @@
     if (!$('oName').value.trim() || !$('oPhone').value.trim()) { toast('Add your name & mobile so we can confirm 📱'); return; }
     if (!$('cVax').checked || !$('cHandle').checked || !$('cContact').checked) { toast('Please check the 3 OK boxes 🐾'); return; }
     if (!$('cSign').value.trim()) { toast('Please sign with your name ✍️'); return; }
+    var vaxMode = $('spVaxUpload').checked ? 'upload' : ($('spVaxBring').checked ? 'bring' : '');
+    if (!vaxMode) { toast('Upload vaccination proof or choose to bring a copy 💉'); return; }
+    var vaxFile = (vaxMode === 'upload' && $('spVaxFile').files && $('spVaxFile').files[0]) ? $('spVaxFile').files[0] : null;
+    if (vaxMode === 'upload' && !vaxFile) { toast('Choose a photo or PDF, or pick "bring a copy" 💉'); return; }
+    if (vaxFile && vaxFile.size > 8 * 1024 * 1024) { toast('That file is over 8 MB — pick a smaller one 📄'); return; }
 
     var e = estimate();
     var when = $('bkDate').value ? new Date($('bkDate').value + 'T12:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'flexible';
@@ -170,16 +189,29 @@
       pet: { name: petName, breed: $('pBreed').value.trim(), size: $('pSize').value, notes: $('pNotes').value.trim() },
       owner: { name: $('oName').value.trim(), phone: $('oPhone').value.trim(), email: $('oEmail').value.trim() },
       services: services, stylist: sel.stylist, requestedDate: when, requestedTime: time, est: e.total,
+      vax: { mode: vaxMode, current: $('cVax').checked },
       company: $('hp').value
     }).then(function (res) {
       lastCodes.unshift({ code: res.code, pet: petName });
-      showBookingSuccess(res.code, petName, services, sel.stylist, when, time, e.total);
-      // reset selections
-      sel.services = {}; sel.addons = {};
-      $('pName').value = ''; $('pBreed').value = ''; $('pNotes').value = '';
-      $('cVax').checked = $('cHandle').checked = $('cContact').checked = false;
-      renderServices(); renderAddons(); renderTotal();
-      toast('Request sent! Code ' + res.code + ' 🩷');
+      // Best-effort: attach the uploaded proof to the fresh ticket.
+      var after = Promise.resolve();
+      if (vaxFile && res.code) {
+        after = readAsDataUrl(vaxFile).then(function (dataUrl) {
+          return api('spaVaxUpload', { code: res.code, dataUrl: dataUrl, name: vaxFile.name });
+        }).catch(function () { toast('Booked — but the file didn\'t attach. Bring a copy 📄'); });
+      }
+      return after.then(function () {
+        showBookingSuccess(res.code, petName, services, sel.stylist, when, time, e.total);
+        // reset selections
+        sel.services = {}; sel.addons = {};
+        $('pName').value = ''; $('pBreed').value = ''; $('pNotes').value = '';
+        $('cVax').checked = $('cHandle').checked = $('cContact').checked = false;
+        if ($('spVaxUpload').checked) $('spVaxUpload').checked = false;
+        if ($('spVaxBring').checked) $('spVaxBring').checked = false;
+        $('spVaxFileWrap').classList.add('hidden'); $('spVaxFile').value = '';
+        renderServices(); renderAddons(); renderTotal();
+        toast('Request sent! Code ' + res.code + ' 🩷');
+      });
     }).catch(function (err) {
       toast(err.message || 'Could not send — please text 304-921-2748');
     }).then(function () { btn.disabled = false; btn.textContent = 'Request →'; });
@@ -351,17 +383,24 @@
       if (!t.paid && !t.voided) actions += '<button class="btn btn--gold btn--sm" data-co="' + t.id + '">💳 Checkout</button>';
       if ((t.paid || done) && !t.voided) actions += '<button class="btn btn--soft btn--sm" data-rebook="' + t.id + '">🔁 Rebook</button>';
       if (!t.voided) actions += '<button class="btn btn--soft btn--sm" data-cx="' + t.id + '">Cancel</button>';
+      if (!t.voided && t.vaxIntake) {
+        if (t.vaxIntake.hasFile) actions += '<button class="btn btn--soft btn--sm" data-vaxdoc="' + t.id + '">🔍 Vax proof</button>';
+        if (t.vaxIntake.status !== 'verified') actions += '<button class="btn btn--soft btn--sm" data-vaxok="' + t.id + '">✓ Vax OK</button>';
+        if (t.vaxIntake.status !== 'rejected') actions += '<button class="btn btn--soft btn--sm" data-vaxno="' + t.id + '">✕ Vax reject</button>';
+      }
       if (ticketHasPayment(t)) actions += can('manager') ? '<button class="btn btn--soft btn--sm" data-void="' + t.id + '">Void</button>' : '';
       else if (!t.voided) actions += '<button class="btn btn--soft btn--sm" data-del="' + t.id + '">✕</button>';
       var owner = t.owner || {};
       return '<div class="card ticket ' + (ready ? 'ticket--ready' : '') + (done || t.voided ? ' ticket--done' : '') + '" style="' + (t.voided ? 'opacity:0.6;text-decoration:line-through' : '') + '">' +
-        '<div class="ticket__top"><strong>' + esc(t.pet && t.pet.name || t.petName) + '</strong>' + chip + apptBadge + depBadge +
+        '<div class="ticket__top"><strong>' + esc(t.pet && t.pet.name || t.petName) + '</strong>' + chip + apptBadge + depBadge + vaxIntakeChip(t.vaxIntake) +
         '<span class="ticket__code" style="margin-left:auto">' + esc(t.code) + '</span></div>' +
         '<div class="ticket__svcs">' + esc((t.services || []).join(' · ')) + ' — ' + esc(t.stylist) +
         (t.requestedTime ? ' · ' + esc(t.requestedTime) : '') + (t.est ? ' · est ' + money(t.est) : '') +
         (t.finalTotal ? ' · <strong>paid ' + money(t.finalTotal) + '</strong>' : '') + '</div>' +
         (owner.name || owner.phone ? '<div class="muted">📱 ' + esc(owner.name || '') + (owner.phone ? ' · ' + esc(owner.phone) : '') + '</div>' : '') +
         (t.pet && t.pet.notes ? '<div class="muted">📝 ' + esc(t.pet.notes) + '</div>' : '') +
+        safetyLine(t.safety) +
+        (t.vaxIntake && t.vaxIntake.status === 'rejected' && t.vaxIntake.reason ? '<div class="muted">💉 Rejected: ' + esc(t.vaxIntake.reason) + '</div>' : '') +
         (t.voided && t.voidReason ? '<div class="muted">Void reason: ' + esc(t.voidReason) + '</div>' : '') +
         '<div class="ticket__actions">' + actions + '</div></div>';
     }).join('');
@@ -380,6 +419,22 @@
     }); });
     box.querySelectorAll('[data-dep]').forEach(function (el) { el.addEventListener('click', function () { openDeposit(el.dataset.dep); }); });
     box.querySelectorAll('[data-rebook]').forEach(function (el) { el.addEventListener('click', function () { openRebook(el.dataset.rebook); }); });
+    box.querySelectorAll('[data-vaxdoc]').forEach(function (el) { el.addEventListener('click', function () {
+      toast('Loading proof…');
+      api('spaVaxDoc', { pin: staffPin, ticketId: el.dataset.vaxdoc }).then(function (r) { openDataUrl(r.dataUrl); }).catch(function (e) { toast(e.message); });
+    }); });
+    box.querySelectorAll('[data-vaxok]').forEach(function (el) { el.addEventListener('click', function () {
+      var expires = prompt('Rabies expiration date to save to the pet profile (YYYY-MM-DD)?\nLeave blank to just verify for today.', '');
+      if (expires === null) return;
+      expires = expires.trim();
+      if (expires && !/^\d{4}-\d{2}-\d{2}$/.test(expires)) { toast('Use YYYY-MM-DD or leave blank.'); return; }
+      api('spaVaxVerify', { pin: staffPin, ticketId: el.dataset.vaxok, status: 'verified', expires: expires }).then(function (r) { toast(r.savedToProfile ? 'Verified & saved to profile 💉✓' : 'Vaccination verified 💉✓'); renderBoard(); }).catch(function (e) { toast(e.message); });
+    }); });
+    box.querySelectorAll('[data-vaxno]').forEach(function (el) { el.addEventListener('click', function () {
+      var reason = prompt('Reason for rejecting this vaccination proof? (shown on the board so the owner can be told what to bring)', '');
+      if (reason === null) return;
+      api('spaVaxVerify', { pin: staffPin, ticketId: el.dataset.vaxno, status: 'rejected', reason: reason.trim() }).then(function () { toast('Vaccination rejected'); renderBoard(); }).catch(function (e) { toast(e.message); });
+    }); });
   }
   function voidTicket(id) {
     if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
@@ -532,6 +587,7 @@
   var clientsCache = [];
   var editPets = [];          // pets in the currently-open client modal
   var editPhones = [];
+  var editPickups = [];       // authorized-pickup people in the open client modal
   var editingClientId = '';
 
   function vaxStatusBadge(status) {
@@ -547,6 +603,37 @@
   function vaxBadge(status) {
     var v = vaxStatusBadge(status);
     return '<span class="vaxbadge ' + v.cls + '">' + v.icon + ' ' + esc(v.label) + '</span>';
+  }
+  // Booking-time vaccination intake (upload proof now vs. bring a copy) shown on
+  // the live board so a groomer sees compliance state before touching the pet.
+  function vaxIntakeChip(vi) {
+    if (!vi) return '';
+    var st = vi.status || 'pending';
+    var label = st === 'verified' ? '💉 Vax ✓'
+      : st === 'rejected' ? '💉 Vax rejected'
+      : vi.mode === 'upload' ? (vi.hasFile ? '💉 proof — review' : '💉 upload pending')
+      : '💉 bring copy';
+    return '<span class="appt-badge ' + (st === 'verified' ? '' : 'appt-badge--pending') + '">' + esc(label) + '</span>';
+  }
+  function openDataUrl(dataUrl) {
+    try {
+      var parts = dataUrl.split(',');
+      var mime = (parts[0].match(/:(.*?);/) || [])[1] || 'application/octet-stream';
+      var bin = atob(parts[1]); var arr = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      var url = URL.createObjectURL(new Blob([arr], { type: mime }));
+      window.open(url, '_blank');
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    } catch (e) { window.open(dataUrl, '_blank'); }
+  }
+  // Compact safety/contact block staff need at the counter (drop-off & pickup).
+  function safetyLine(s) {
+    if (!s) return '';
+    var out = '';
+    if (s.emergencyName || s.emergencyPhone) out += '<div class="muted">🆘 ' + esc(s.emergencyName || '') + (s.emergencyRelation ? ' (' + esc(s.emergencyRelation) + ')' : '') + (s.emergencyPhone ? ' · ' + esc(s.emergencyPhone) : '') + '</div>';
+    if (s.authorizedPickup && s.authorizedPickup.length) out += '<div class="muted">🤝 Pickup: ' + s.authorizedPickup.map(function (x) { return esc(x.name || '') + (x.phone ? ' (' + esc(x.phone) + ')' : ''); }).join(', ') + '</div>';
+    if (s.vetName || s.vetClinic || s.vetPhone) out += '<div class="muted">🩺 ' + esc([s.vetName, s.vetClinic].filter(Boolean).join(' · ')) + (s.vetPhone ? ' · ' + esc(s.vetPhone) : '') + '</div>';
+    return out;
   }
   function phonesFor(c) {
     var phones = (c && c.phones && c.phones.length) ? c.phones : (c && c.phone ? [{ type: 'Mobile', number: c.phone }] : []);
@@ -600,8 +687,12 @@
           vaxBadge(p.vaxStatus) +
           (p.temperament ? '<div class="muted">🐾 ' + esc(p.temperament) + '</div>' : '') +
           (p.notes ? '<div class="muted">📝 ' + esc(p.notes) + '</div>' : '') +
-          (vaxSummary(p) ? '<div class="muted">💉 ' + esc(vaxSummary(p)) + '</div>' : (p.vaxNotes ? '<div class="muted">💉 ' + esc(p.vaxNotes) + '</div>' : '')) + '</div>';
+          (vaxSummary(p) ? '<div class="muted">💉 ' + esc(vaxSummary(p)) + '</div>' : (p.vaxNotes ? '<div class="muted">💉 ' + esc(p.vaxNotes) + '</div>' : '')) +
+          ((p.vetName || p.vetClinic || p.vetPhone) ? '<div class="muted">🩺 ' + esc([p.vetName, p.vetClinic].filter(Boolean).join(' · ')) + (p.vetPhone ? ' · ' + esc(p.vetPhone) : '') + '</div>' : '') + '</div>';
       }).join('');
+      var safety = '';
+      if (c.emergencyName || c.emergencyPhone) safety += '<div class="muted">🆘 ' + esc(c.emergencyName || '') + (c.emergencyRelation ? ' (' + esc(c.emergencyRelation) + ')' : '') + (c.emergencyPhone ? ' · ' + esc(c.emergencyPhone) : '') + '</div>';
+      if (c.authorizedPickup && c.authorizedPickup.length) safety += '<div class="muted">🤝 Pickup: ' + c.authorizedPickup.map(function (x) { return esc(x.name || '') + (x.phone ? ' (' + esc(x.phone) + ')' : ''); }).join(', ') + '</div>';
       var contact = '';
       var phone = primaryPhone(c);
       if (phone) contact += '<a class="btn btn--soft btn--sm" href="tel:' + esc(phone) + '">📞 Call</a>' +
@@ -614,6 +705,7 @@
         '<span class="ticket__code" style="margin-left:auto">' + (c.visits || 0) + ' visit' + ((c.visits || 0) === 1 ? '' : 's') + ' · ' + money(c.spent || 0) + '</span></div>' +
         phoneLines(c) +
         (c.notes ? '<div class="muted">🗒️ ' + esc(c.notes) + '</div>' : '') +
+        safety +
         '<div class="client__contact">' + contact + '</div>' +
         (pets || '<div class="muted">No pets on file yet.</div>') +
         '<div class="ticket__actions"><button class="btn btn--gold btn--sm" data-cledit="' + idx + '">✎ Edit / add pet</button>' +
@@ -643,8 +735,13 @@
     $('clName').value = c.name || '';
     $('clEmail').value = c.email || '';
     $('clNotes').value = c.notes || '';
+    $('clEmName').value = c.emergencyName || '';
+    $('clEmRel').value = c.emergencyRelation || '';
+    $('clEmPhone').value = c.emergencyPhone || '';
+    editPickups = (c.authorizedPickup || []).map(function (x) { return { name: x.name || '', phone: x.phone || '' }; });
     $('clDelete').style.display = c.id && can('manager') ? '' : 'none';
     drawEditPhones();
+    drawEditPickups();
     drawEditPets();
     $('clientModal').classList.add('open');
   }
@@ -664,6 +761,20 @@
       drawEditPhones();
     }); });
   }
+  function drawEditPickups() {
+    $('clPickups').innerHTML = editPickups.map(function (p, i) {
+      return '<div class="row2" style="grid-template-columns:1fr 1fr 34px;gap:0.4rem;align-items:center;margin-bottom:0.4rem">' +
+        '<input type="text" data-pickup-name="' + i + '" value="' + esc(p.name) + '" placeholder="Name" />' +
+        '<input type="tel" data-pickup-phone="' + i + '" value="' + esc(p.phone) + '" placeholder="Phone" inputmode="tel" />' +
+        '<button class="btn btn--soft btn--sm" data-pickup-rm="' + i + '" type="button">✕</button></div>';
+    }).join('') || '<p class="muted" style="margin:0 0 0.4rem;font-size:0.82rem">None added.</p>';
+    $('clPickups').querySelectorAll('[data-pickup-name]').forEach(function (el) { el.addEventListener('input', function () { editPickups[el.dataset.pickupName].name = el.value; }); });
+    $('clPickups').querySelectorAll('[data-pickup-phone]').forEach(function (el) { el.addEventListener('input', function () { editPickups[el.dataset.pickupPhone].phone = el.value; }); });
+    $('clPickups').querySelectorAll('[data-pickup-rm]').forEach(function (el) { el.addEventListener('click', function () {
+      editPickups.splice(Number(el.dataset.pickupRm), 1);
+      drawEditPickups();
+    }); });
+  }
   function drawEditPets() {
     $('clPets').innerHTML = editPets.length ? editPets.map(function (p, i) {
       return '<div class="petrow petrow--edit"><span class="petrow__name">🐩 ' + esc(p.name || 'Pet') +
@@ -679,6 +790,7 @@
   }
   $('clCancel').addEventListener('click', closeClient);
   $('clAddPhone').addEventListener('click', function () { editPhones.push({ type: 'Mobile', number: '' }); drawEditPhones(); });
+  $('clAddPickup').addEventListener('click', function () { editPickups.push({ name: '', phone: '' }); drawEditPickups(); });
   $('clAddPet').addEventListener('click', function () { openPet(-1); });
   $('clDelete').addEventListener('click', function () {
     if (!can('manager')) { toast('That needs a manager or owner PIN.'); return; }
@@ -693,6 +805,10 @@
       phones: phones,
       email: $('clEmail').value.trim(),
       notes: $('clNotes').value.trim(),
+      emergencyName: $('clEmName').value.trim(),
+      emergencyRelation: $('clEmRel').value.trim(),
+      emergencyPhone: $('clEmPhone').value.trim(),
+      authorizedPickup: editPickups.map(function (p) { return { name: (p.name || '').trim(), phone: (p.phone || '').trim() }; }).filter(function (p) { return p.name || p.phone; }),
       pets: editPets
     };
     if (!client.name && !phones.length) { toast('Add a name or phone number.'); return; }
@@ -722,6 +838,9 @@
     $('petGroomFeet').value = g.feet || '';
     $('petGroomFinish').value = g.finish || '';
     $('petGroomNotes').value = g.notes || '';
+    $('petVetName').value = p.vetName || '';
+    $('petVetPhone').value = p.vetPhone || '';
+    $('petVetClinic').value = p.vetClinic || '';
     loadPetPhotos(p.id || '', editingClientId || '');
     editVax = (p.vaccinations || []).map(function (v) { return Object.assign({}, v); });
     if (!editVax.length && p.rabiesExpires) editVax.push({ type: 'Rabies', expires: p.rabiesExpires, verifiedAt: '', notes: p.vaxNotes || '' });
@@ -788,7 +907,10 @@
         feet: $('petGroomFeet').value.trim(),
         finish: $('petGroomFinish').value.trim(),
         notes: $('petGroomNotes').value.trim()
-      }
+      },
+      vetName: $('petVetName').value.trim(),
+      vetPhone: $('petVetPhone').value.trim(),
+      vetClinic: $('petVetClinic').value.trim()
     };
     if (editingPetIdx >= 0) editPets[editingPetIdx] = pet; else editPets.push(pet);
     $('petModal').classList.remove('open');
@@ -796,13 +918,16 @@
   });
 
   $('clientsCsvBtn').addEventListener('click', function () {
-    var rows = [['Owner', 'Phones', 'Email', 'Visits', 'Spent', 'Pet', 'Breed', 'Size', 'VaxStatus', 'Vaccinations', 'Notes']];
+    var rows = [['Owner', 'Phones', 'Email', 'Visits', 'Spent', 'Pet', 'Breed', 'Size', 'VaxStatus', 'Vaccinations', 'Vet', 'Emergency', 'AuthorizedPickup', 'Notes']];
     clientsCache.forEach(function (c) {
       var phones = phonesFor(c).map(function (p) { return (p.type || 'Phone') + ':' + p.number; }).join('; ');
+      var emerg = (c.emergencyName || c.emergencyPhone) ? (c.emergencyName || '') + (c.emergencyRelation ? ' (' + c.emergencyRelation + ')' : '') + (c.emergencyPhone ? ' ' + c.emergencyPhone : '') : '';
+      var pickup = (c.authorizedPickup || []).map(function (x) { return (x.name || '') + (x.phone ? ' ' + x.phone : ''); }).join('; ');
       if (c.pets && c.pets.length) c.pets.forEach(function (p) {
-        rows.push([c.name || '', phones, c.email || '', c.visits || 0, c.spent || 0, p.name || '', p.breed || '', p.size || '', p.vaxStatus || '', vaxSummary(p), c.notes || '']);
+        var vet = [p.vetName, p.vetClinic, p.vetPhone].filter(Boolean).join(' ');
+        rows.push([c.name || '', phones, c.email || '', c.visits || 0, c.spent || 0, p.name || '', p.breed || '', p.size || '', p.vaxStatus || '', vaxSummary(p), vet, emerg, pickup, c.notes || '']);
       });
-      else rows.push([c.name || '', phones, c.email || '', c.visits || 0, c.spent || 0, '', '', '', c.vaxStatus || '', '', c.notes || '']);
+      else rows.push([c.name || '', phones, c.email || '', c.visits || 0, c.spent || 0, '', '', '', c.vaxStatus || '', '', '', emerg, pickup, c.notes || '']);
     });
     dl('pink-poodle-clients-' + todayISO() + '.csv', 'text/csv', rows.map(csvRow).join('\r\n'));
   });

@@ -1742,6 +1742,36 @@ async function loadRequiredVax() {
   return DEFAULT_REQUIRED_VAX.slice();
 }
 
+/** The exact policy wording a booking customer acknowledges. Bump the version
+ * whenever the text changes so stored acknowledgments stay auditable. */
+const VAX_ACK_VERSION = "v1";
+const VAX_ACK_TEXT =
+  "I understand The Pink Poodle requires proof of current rabies vaccination. " +
+  "If I don't upload proof now, I will bring a physical copy on groom day, and " +
+  "I understand my pet cannot be groomed and may be turned away without it.";
+
+/** Sanitize the vaccination intake captured at booking time. `mode` is either
+ * "upload" (owner is/was providing a document) or "bring" (owner acknowledges
+ * bringing a paper copy). Verification is always groomer-driven, never trusted
+ * from the client. */
+function cleanVaxIntake(v) {
+  const src = v && typeof v === "object" ? v : {};
+  const mode = src.mode === "upload" ? "upload" : "bring";
+  return {
+    mode,
+    current: src.current === true,
+    ack: VAX_ACK_TEXT,
+    ackVersion: VAX_ACK_VERSION,
+    ackAt: nowMs(),
+    hasFile: false,
+    file: null,
+    verified: false,
+    verifiedAt: 0,
+    verifiedBy: "",
+    status: "pending",
+  };
+}
+
 /** Sanitize a single pet profile (staff CRM). */
 function cleanPet(p) {
   p = p || {};
@@ -1780,6 +1810,10 @@ function cleanPet(p) {
     rabiesExpires: (vaccinations.find((v) => v.type.toLowerCase() === "rabies") || {}).expires || "",
     vaxNotes: String(p.vaxNotes || "").trim().slice(0, 200),
     vaccinations,
+    // Vet contact — for a medical emergency during grooming.
+    vetName: String(p.vetName || "").trim().slice(0, 80),
+    vetClinic: String(p.vetClinic || "").trim().slice(0, 100),
+    vetPhone: String(p.vetPhone || "").trim().slice(0, 30),
   };
 }
 
@@ -1796,6 +1830,16 @@ function clientOut(doc) {
     notes: d.notes || "",
     pets: Array.isArray(d.pets) ? d.pets.map(cleanPet) : [],
     rebookEveryWeeks: Math.max(0, Math.min(52, Number(d.rebookEveryWeeks) || 0)),
+    // Emergency contact + who may pick up the pet (safety / liability).
+    emergencyName: d.emergencyName || "",
+    emergencyPhone: d.emergencyPhone || "",
+    emergencyRelation: d.emergencyRelation || "",
+    authorizedPickup: Array.isArray(d.authorizedPickup)
+      ? d.authorizedPickup
+          .map((x) => ({ name: String((x && x.name) || ""), phone: String((x && x.phone) || "") }))
+          .filter((x) => x.name || x.phone)
+          .slice(0, 6)
+      : [],
     createdAt: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0,
     updatedAt: d.updatedAt && d.updatedAt.toMillis ? d.updatedAt.toMillis() : 0,
   };
@@ -1996,6 +2040,16 @@ function spaTicketFull(doc) {
       applied: !!d.deposit.applied,
     } : null,
     createdAt: d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis() : 0,
+    vaxIntake: d.vaxIntake ? {
+      mode: d.vaxIntake.mode || "bring",
+      current: !!d.vaxIntake.current,
+      hasFile: !!(d.vaxIntake.file && d.vaxIntake.file.path),
+      fileName: (d.vaxIntake.file && d.vaxIntake.file.name) || "",
+      verified: !!d.vaxIntake.verified,
+      status: d.vaxIntake.status || "pending",
+      verifiedBy: d.vaxIntake.verifiedBy || "",
+      reason: d.vaxIntake.reason || "",
+    } : null,
   });
 }
 
@@ -2054,7 +2108,7 @@ exports.pinkPoodleSpa = onRequest(
     const b = req.body || {};
     const action = b.action;
     const ip = clientIp(req);
-    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode", "spaConfirmByCode"];
+    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode", "spaConfirmByCode", "spaVaxUpload"];
     let actor = null;
 
     try {
@@ -2101,6 +2155,8 @@ exports.pinkPoodleSpa = onRequest(
             stylist: String(b.stylist || "No preference").slice(0, 40),
             requestedDate: String(b.requestedDate || "").slice(0, 40),
             requestedTime: String(b.requestedTime || "").slice(0, 40),
+            // Vaccination intake: proof uploaded now, or acknowledged bring-on-day.
+            vaxIntake: cleanVaxIntake(b.vax),
             // If the customer picked an exact date, seed the structured
             // appointment fields so reminders/confirmations can fire.
             apptDate: isIsoDate(b.requestedDate) ? b.requestedDate : "",
@@ -2172,11 +2228,75 @@ exports.pinkPoodleSpa = onRequest(
           return res.json({ ok: true, confirmed: true });
         }
 
+        case "spaVaxUpload": {
+          // A booking customer attaches proof of vaccination to their own
+          // ticket using only the code they were given. No PIN — but the file
+          // lands in a fully private bucket, retrievable only by staff (PIN).
+          const okr = await checkRateLimit("spavax", ip, { max: 12, windowMs: 15 * 60 * 1000 });
+          if (!okr) return res.status(429).json({ error: "Too many uploads. Please text (304) 921-2748." });
+          if (b.company) return res.json({ ok: true }); // honeypot
+          const codeUp = String(b.code || "").trim().toUpperCase().slice(0, 10);
+          if (!codeUp) return res.status(400).json({ error: "Missing booking code." });
+          const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
+          if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
+          const doc = snap.docs[0];
+          const m = /^data:(image\/(?:jpeg|png|webp)|application\/pdf);base64,([A-Za-z0-9+/=]+)$/.exec(String(b.dataUrl || ""));
+          if (!m) return res.status(400).json({ error: "Upload a JPEG, PNG, WebP, or PDF." });
+          const contentType = m[1];
+          const buf = Buffer.from(m[2], "base64");
+          if (!buf.length || buf.length > 8 * 1024 * 1024) return res.status(400).json({ error: "File must be under 8 MB." });
+          const ext = contentType === "application/pdf" ? "pdf" : contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
+          const fileId = genId();
+          const path = `vax/${codeUp}/${fileId}.${ext}`;
+          try {
+            await petBucket().file(path).save(buf, { contentType, resumable: false, metadata: { cacheControl: "private, max-age=0" } });
+          } catch (e) {
+            console.error("spaVaxUpload storage failed", e && e.message);
+            return res.status(502).json({ error: "Couldn't store the file. Try again, or bring a copy on groom day." });
+          }
+          const cur = doc.data().vaxIntake || cleanVaxIntake({ mode: "upload" });
+          const vaxIntake = Object.assign({}, cur, {
+            mode: "upload",
+            hasFile: true,
+            file: { path, contentType, name: String(b.name || "").slice(0, 120), at: nowMs() },
+            // A fresh upload always resets to pending re-verification.
+            verified: false, verifiedAt: 0, verifiedBy: "", status: "pending",
+          });
+          await doc.ref.set({ vaxIntake }, { merge: true });
+          return res.json({ ok: true });
+        }
+
         /* ---------------- staff (PIN required) ---------------- */
         case "spaBoard": {
           const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(200).get();
           const today = todayET();
           const tickets = snap.docs.map(spaTicketFull).filter((t) => !t.voided && (t.date === today || (t.step < 6 && !t.cancelled)));
+          // Join in each client's safety info (emergency contact, authorized-pickup,
+          // vet) so staff see it on the live board at drop-off/pickup — not buried
+          // in an edit modal. Bounded by the (small) number of active tickets.
+          const cids = [...new Set(tickets.map((t) => t.clientId).filter(Boolean))].slice(0, 60);
+          const cmap = {};
+          await Promise.all(cids.map(async (cid) => {
+            try {
+              const cdoc = await db.collection(SPA_CLIENTS).doc(cid).get();
+              if (cdoc.exists) cmap[cid] = clientOut(cdoc);
+            } catch (_) {}
+          }));
+          tickets.forEach((t) => {
+            const c = cmap[t.clientId];
+            if (!c) return;
+            const petName = String((t.pet && t.pet.name) || "").trim().toLowerCase();
+            const pet = (c.pets || []).find((p) => (p.name || "").trim().toLowerCase() === petName) || null;
+            t.safety = {
+              emergencyName: c.emergencyName || "",
+              emergencyPhone: c.emergencyPhone || "",
+              emergencyRelation: c.emergencyRelation || "",
+              authorizedPickup: c.authorizedPickup || [],
+              vetName: pet ? pet.vetName || "" : "",
+              vetClinic: pet ? pet.vetClinic || "" : "",
+              vetPhone: pet ? pet.vetPhone || "" : "",
+            };
+          });
           return res.json({ ok: true, tickets, steps: SPA_STEPS });
         }
 
@@ -2566,6 +2686,81 @@ exports.pinkPoodleSpa = onRequest(
           return res.json({ ok: true });
         }
 
+        /* ---------------- Vaccination proof (private, behind PIN) ---------------- */
+        case "spaVaxDoc": {
+          // Stream the customer-uploaded vaccination document to a signed-in
+          // staff member. The bucket stays private; bytes only leave here.
+          const tid = String(b.ticketId || "").slice(0, 40);
+          const codeUp = String(b.code || "").trim().toUpperCase().slice(0, 10);
+          let doc = null;
+          if (tid) { const dd = await db.collection(SPA_TICKETS).doc(tid).get(); if (dd.exists) doc = dd; }
+          if (!doc && codeUp) { const s = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get(); if (!s.empty) doc = s.docs[0]; }
+          if (!doc) return res.status(404).json({ error: "Booking not found." });
+          const f = (doc.data().vaxIntake || {}).file;
+          if (!f || !f.path) return res.status(404).json({ error: "No document uploaded." });
+          try {
+            const [buf] = await petBucket().file(f.path).download();
+            return res.json({ ok: true, dataUrl: `data:${f.contentType || "application/pdf"};base64,${buf.toString("base64")}`, contentType: f.contentType || "application/pdf", name: f.name || "" });
+          } catch (e) {
+            console.error("spaVaxDoc download failed", e && e.message);
+            return res.status(502).json({ error: "Couldn't load the document." });
+          }
+        }
+
+        case "spaVaxVerify": {
+          const tid = String(b.ticketId || "").slice(0, 40);
+          if (!tid) return res.status(400).json({ error: "Missing ticketId." });
+          const ref = db.collection(SPA_TICKETS).doc(tid);
+          const doc = await ref.get();
+          if (!doc.exists) return res.status(404).json({ error: "Booking not found." });
+          // Fail closed: an unknown/missing status must NOT silently mark a pet's
+          // rabies proof as verified (compliance/liability record).
+          if (["verified", "rejected", "pending"].indexOf(b.status) < 0) {
+            return res.status(400).json({ error: "Invalid status." });
+          }
+          const status = b.status;
+          const cur = doc.data().vaxIntake || cleanVaxIntake({ mode: "bring" });
+          const vaxIntake = Object.assign({}, cur, {
+            status,
+            verified: status === "verified",
+            verifiedAt: nowMs(),
+            verifiedBy: actor.name || "Staff",
+            reason: status === "rejected" ? String(b.reason || "").trim().slice(0, 200) : "",
+          });
+          await ref.set({ vaxIntake }, { merge: true });
+          // Optionally persist a verified rabies expiration onto the pet's reusable
+          // profile so future visits don't re-chase proof we've already seen.
+          let savedToProfile = false;
+          const expires = isIsoDate(b.expires) ? b.expires : "";
+          if (status === "verified" && expires) {
+            const t = doc.data();
+            const cid = t.clientId || "";
+            const petName = String((t.pet && t.pet.name) || "").trim().toLowerCase();
+            if (cid && petName) {
+              try {
+                const cref = db.collection(SPA_CLIENTS).doc(cid);
+                // Transaction so a concurrent client-modal save can't clobber (or be
+                // clobbered by) this pet-profile update — both rewrite the pets array.
+                savedToProfile = await db.runTransaction(async (tx) => {
+                  const cdoc = await tx.get(cref);
+                  if (!cdoc.exists) return false;
+                  const pets = (cdoc.data().pets || []).map(cleanPet);
+                  const pi = pets.findIndex((p) => (p.name || "").trim().toLowerCase() === petName);
+                  if (pi < 0) return false;
+                  const vax = Array.isArray(pets[pi].vaccinations) ? pets[pi].vaccinations.slice() : [];
+                  const ri = vax.findIndex((v) => (v.type || "").toLowerCase() === "rabies");
+                  const rabies = { type: "Rabies", expires, verifiedAt: todayET(), notes: "Verified from uploaded proof" };
+                  if (ri >= 0) vax[ri] = Object.assign({}, vax[ri], rabies); else vax.push(rabies);
+                  pets[pi] = Object.assign({}, pets[pi], { vaccinations: vax, rabiesExpires: expires });
+                  tx.set(cref, { pets: pets.map(cleanPet), updatedAt: now() }, { merge: true });
+                  return true;
+                });
+              } catch (e) { console.error("vax->pet persist failed", e && e.message); }
+            }
+          }
+          return res.json({ ok: true, status, savedToProfile });
+        }
+
         case "spaContacts": {
           const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(1000).get();
           const map = {};
@@ -2674,6 +2869,17 @@ exports.pinkPoodleSpa = onRequest(
             rebookEveryWeeks: Math.max(0, Math.min(52, Number(c.rebookEveryWeeks) || 0)),
             updatedAt: now(),
           };
+          // Emergency contact + authorized-pickup list. Only touched when the key
+          // is supplied, so an owner-only/truncated save can't silently wipe them.
+          if (c.emergencyName !== undefined) data.emergencyName = String(c.emergencyName || "").trim().slice(0, 80);
+          if (c.emergencyPhone !== undefined) data.emergencyPhone = String(c.emergencyPhone || "").trim().slice(0, 30);
+          if (c.emergencyRelation !== undefined) data.emergencyRelation = String(c.emergencyRelation || "").trim().slice(0, 40);
+          if (Array.isArray(c.authorizedPickup)) {
+            data.authorizedPickup = c.authorizedPickup
+              .map((x) => ({ name: String((x && x.name) || "").trim().slice(0, 80), phone: String((x && x.phone) || "").trim().slice(0, 30) }))
+              .filter((x) => x.name || x.phone)
+              .slice(0, 6);
+          }
           // Only touch pets when an explicit array is supplied, so an owner-only
           // save (or a truncated payload) can't silently wipe vaccination records.
           if (Array.isArray(c.pets)) data.pets = c.pets.map(cleanPet).slice(0, 20);
@@ -2927,11 +3133,18 @@ exports.pinkPoodleSpaCron = onSchedule(
           const when = t.apptTime ? ` at ${t.apptTime}` : "";
           const pet = (t.pet && t.pet.name) || "your pup";
           const confirmUrl = `https://thepinkpoodle.dog/spa.html?confirm=${encodeURIComponent(t.code || "")}`;
+          // Remind them to bring vaccination proof unless a file is actually
+          // stored or a groomer verified it. (Intent alone isn't enough — the
+          // upload is best-effort and may have failed after booking.)
+          const vi = t.vaxIntake || {};
+          const needProof = !vi.verified && !(vi.file && vi.file.path);
+          const vaxSms = needProof ? " Please bring proof of current rabies vaccination — pups can't be groomed without it." : "";
+          const vaxHtml = needProof ? `<p><b>Please bring proof of current rabies vaccination</b> — pups can't be groomed without it.</p>` : "";
           const used = await notifyCustomer({
             phone: o.phone, email: o.email,
-            smsBody: `The Pink Poodle 🐩: reminder — ${pet}'s grooming is tomorrow${when}. Confirm: ${confirmUrl} · Reschedule: text (304) 921-2748.`,
+            smsBody: `The Pink Poodle 🐩: reminder — ${pet}'s grooming is tomorrow${when}. Confirm: ${confirmUrl} · Reschedule: text (304) 921-2748.${vaxSms}`,
             emailSubject: `Reminder: ${pet}'s grooming is tomorrow`,
-            emailHtml: `<p>Hi ${esc(o.name || "there")},</p><p>This is a friendly reminder that <b>${esc(pet)}</b> is booked for grooming <b>tomorrow${esc(when)}</b> at The Pink Poodle.</p><p><a href="${esc(confirmUrl)}">Tap here to confirm your appointment</a>. Need to reschedule? Just text (304) 921-2748.</p><p>🩷🐩</p>`,
+            emailHtml: `<p>Hi ${esc(o.name || "there")},</p><p>This is a friendly reminder that <b>${esc(pet)}</b> is booked for grooming <b>tomorrow${esc(when)}</b> at The Pink Poodle.</p>${vaxHtml}<p><a href="${esc(confirmUrl)}">Tap here to confirm your appointment</a>. Need to reschedule? Just text (304) 921-2748.</p><p>🩷🐩</p>`,
           });
           await d.ref.set({ reminderSentAt: Date.now(), reminderChannels: used }, { merge: true });
           if (used.length) reminded++;

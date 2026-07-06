@@ -458,3 +458,15 @@ a { color: inherit; text-decoration: none; }
   .hero__scroll { animation: none; }
   * { scroll-behavior: auto; }
 }
+
+/* ===== Booking: vaccination proof ===== */
+.vax { border: 1px solid var(--gold); border-radius: 14px; padding: 1rem 1.1rem; margin: 0.2rem 0 0.4rem; background: rgba(230,201,131,0.06); }
+.vax legend { font-weight: 600; padding: 0 0.4rem; letter-spacing: 0.02em; }
+.vax__req { display: inline-block; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.12em; background: #c0392b; color: #fff; border-radius: 100px; padding: 0.12rem 0.5rem; margin-left: 0.35rem; vertical-align: middle; }
+.vax__note { font-size: 0.86rem; opacity: 0.85; margin: 0.15rem 0 0.7rem; }
+.vax__opt { display: flex; align-items: flex-start; gap: 0.55rem; padding: 0.5rem 0; cursor: pointer; font-size: 0.92rem; }
+.vax__opt input { margin-top: 0.2rem; }
+.vax__sub { display: block; font-size: 0.78rem; opacity: 0.7; }
+.vax__file { margin: 0 0 0.4rem 1.7rem; }
+.vax__file input[type=file] { max-width: 100%; }
+.vax__hint { display: block; font-size: 0.72rem; opacity: 0.65; margin-top: 0.25rem; }

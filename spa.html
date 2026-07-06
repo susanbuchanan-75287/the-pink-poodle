@@ -78,6 +78,11 @@
       <h2>A few quick OKs 🐾</h2>
       <div class="card">
         <label class="check"><input type="checkbox" id="cVax" /> <span>My pet's vaccinations (rabies) are current.</span></label>
+        <div class="vaxproof" style="margin:0.2rem 0 0.6rem 1.7rem">
+          <label class="check" style="padding:0.25rem 0"><input type="radio" name="spVaxMode" id="spVaxUpload" /> <span>Upload proof now <small style="opacity:.7">(photo or PDF)</small></span></label>
+          <div id="spVaxFileWrap" class="hidden" style="margin:0.1rem 0 0.4rem 1.7rem"><input type="file" id="spVaxFile" accept="image/jpeg,image/png,image/webp,application/pdf" /></div>
+          <label class="check" style="padding:0.25rem 0"><input type="radio" name="spVaxMode" id="spVaxBring" /> <span>I'll bring a copy on groom day <small style="opacity:.7">(no proof = can't be groomed)</small></span></label>
+        </div>
         <label class="check"><input type="checkbox" id="cHandle" /> <span>I consent to gentle grooming &amp; handling, and understand severely matted coats may need a humane shave-down for my pet's comfort.</span></label>
         <label class="check"><input type="checkbox" id="cContact" /> <span>The Pink Poodle may text/call me about this appointment.</span></label>
         <div class="field" style="margin-top:0.6rem"><label>Sign (type your name)</label><input type="text" id="cSign" placeholder="Your name" /></div>
@@ -341,6 +346,22 @@
       <div class="field"><label>Email</label><input type="email" id="clEmail" placeholder="jane@email.com" inputmode="email" /></div>
       <div class="field"><label>Notes <span class="muted">(preferences, alerts…)</span></label><textarea id="clNotes" placeholder="Prefers morning drop-off; nervous with dryers…"></textarea></div>
 
+      <div class="card" style="background:#fff8ee">
+        <h2 style="font-size:0.95rem;margin:0 0 0.4rem">🆘 Emergency contact</h2>
+        <div class="row2">
+          <div class="field"><label>Name</label><input type="text" id="clEmName" placeholder="e.g. John Smith" /></div>
+          <div class="field"><label>Relationship</label><input type="text" id="clEmRel" placeholder="Spouse, parent…" /></div>
+        </div>
+        <div class="field"><label>Phone</label><input type="tel" id="clEmPhone" placeholder="(304) 555-1234" inputmode="tel" /></div>
+      </div>
+
+      <div class="card" style="background:#fff8ee">
+        <h2 style="font-size:0.95rem;margin:0 0 0.4rem">🤝 Authorized to pick up</h2>
+        <p class="muted" style="margin:0 0 0.4rem;font-size:0.82rem">People (besides the owner) allowed to collect the pet.</p>
+        <div id="clPickups"></div>
+        <button class="btn btn--soft btn--sm" id="clAddPickup" type="button">＋ Add person</button>
+      </div>
+
       <h2 style="font-size:1rem;margin:0.6rem 0 0.3rem">Pets 🐩</h2>
       <div id="clPets"></div>
       <button class="btn btn--soft btn--sm" id="clAddPet" type="button">＋ Add pet</button>
@@ -391,6 +412,14 @@
         </div>
         <div class="field"><label>Finish</label><input type="text" id="petGroomFinish" placeholder="Cologne + bandana" /></div>
         <div class="field"><label>Cut notes</label><textarea id="petGroomNotes" placeholder="Owner likes short but leave ears long…"></textarea></div>
+      </div>
+      <div class="card" style="background:#fff8ee">
+        <h2 style="font-size:0.95rem;margin:0 0 0.4rem">🩺 Vet contact <span class="muted" style="font-weight:400">(for emergencies)</span></h2>
+        <div class="row2">
+          <div class="field"><label>Vet / doctor name</label><input type="text" id="petVetName" placeholder="e.g. Dr. Adkins" /></div>
+          <div class="field"><label>Phone</label><input type="tel" id="petVetPhone" placeholder="(304) 555-1234" inputmode="tel" /></div>
+        </div>
+        <div class="field"><label>Clinic</label><input type="text" id="petVetClinic" placeholder="e.g. Princeton Animal Hospital" /></div>
       </div>
       <div class="card" id="petPhotosCard" style="background:#fff">
         <h2 style="font-size:0.95rem;margin:0 0 0.4rem">📸 Before &amp; after photos</h2>

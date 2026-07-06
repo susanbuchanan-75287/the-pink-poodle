@@ -226,6 +226,16 @@ $('camCancel').addEventListener('click', stopCamera);
 $('camFlip').addEventListener('click', () => { camFacing = camFacing === 'environment' ? 'user' : 'environment'; openCamera(); });
 cameraInput.addEventListener('change', () => chooseFile(cameraInput.files[0]));
 
+// Share the live site to Facebook (no token/app needed — Facebook scrapes the
+// site's Open Graph cover photo + description). Lets Britni pick The Pink Poodle
+// Page or her timeline in the dialog. Auto-post via API is the toFacebook toggle.
+const shareFacebook = $('shareFacebook');
+if (shareFacebook) shareFacebook.addEventListener('click', () => {
+  const url = 'https://thepinkpoodle.dog/?utm_source=facebook&utm_medium=share&utm_campaign=admin_share';
+  const share = 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(url);
+  window.open(share, 'ppFbShare', 'width=680,height=640,menubar=no,toolbar=no');
+});
+
 function toBase64(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); }); }
 
 $('uploadForm').addEventListener('submit', async (e) => {

@@ -30,6 +30,7 @@
   <meta property="og:image" content="https://thepinkpoodle.dog/assets/britni.jpg" />
   <meta property="og:image:width" content="960" />
   <meta property="og:image:height" content="640" />
+  <meta property="og:image:type" content="image/jpeg" />
   <meta property="og:image:alt" content="Britni, owner of The Pink Poodle, holding two freshly groomed dogs" />
   <meta property="business:contact_data:street_address" content="708 Stafford Dr" />
   <meta property="business:contact_data:locality" content="Princeton" />
@@ -43,9 +44,11 @@
   <meta name="twitter:title" content="The Pink Poodle | Luxury Dog Grooming in Princeton, WV" />
   <meta name="twitter:description" content="Locally owned luxury pet salon in Princeton, WV. Text 304-921-2748 to book!" />
   <meta name="twitter:image" content="https://thepinkpoodle.dog/assets/britni.jpg" />
+  <meta name="twitter:image:alt" content="Britni, owner of The Pink Poodle dog grooming salon in Princeton, WV" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preload" as="image" href="assets/britni.jpg" fetchpriority="high" />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Parisienne&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%A9%3C/text%3E%3C/svg%3E" />
@@ -68,6 +71,7 @@
     "email": "groomerbrit@yahoo.com",
     "priceRange": "$$",
     "currenciesAccepted": "USD",
+    "paymentAccepted": "Cash, Credit Card, Venmo",
     "founder": { "@type": "Person", "name": "Britni" },
     "employee": [
       { "@type": "Person", "name": "Britni", "jobTitle": "Owner & Groomer", "telephone": "+13049212748" },
@@ -86,7 +90,12 @@
     "areaServed": [
       { "@type": "City", "name": "Princeton, WV" },
       { "@type": "AdministrativeArea", "name": "Mercer County, WV" },
-      { "@type": "City", "name": "Bluefield, WV" }
+      { "@type": "City", "name": "Bluefield, WV" },
+      { "@type": "City", "name": "Athens, WV" },
+      { "@type": "City", "name": "Oakvale, WV" },
+      { "@type": "City", "name": "Pipestem, WV" },
+      { "@type": "City", "name": "Bramwell, WV" },
+      { "@type": "City", "name": "Bluefield, VA" }
     ],
     "sameAs": ["https://www.facebook.com/people/The-Pink-Poodle/61556253292828/", "https://www.instagram.com/brit.grooming/"],
     "description": "Locally owned and operated luxury dog grooming salon in Princeton, West Virginia. Grooms, baths and de-shed treatments for dogs of all sizes by Britni.",
@@ -95,7 +104,10 @@
       { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Full Groom", "description": "Complete breed-specific cut, bath, blow-out, nail trim, ear cleaning and finishing touches for dogs of all sizes." } },
       { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Bath & Tidy", "description": "Luxe shampoo & conditioner, thorough dry, nail trim, and a face, feet & sanitary tidy-up." } },
       { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "De-Shed Treatment", "description": "Deep-clean bath plus specialized brushing to dramatically reduce shedding." } },
-      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Puppy's First Groom", "description": "Gentle, confidence-building introduction to grooming for first-time puppies." } }
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Puppy's First Groom", "description": "Gentle, confidence-building introduction to grooming for first-time puppies." } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "The Poodle Package", "description": "The full couture experience: breed-tailored styling, luxe double-bath & blow-out, pawdicure, blueberry facial and finishing touches." } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "The Face & Fanny", "description": "A fresh tidy-up between full grooms: bath, face trim, blueberry facial, sanitary tidy, nail trim and ear cleaning." } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "The Crown Jewel De-Shed", "description": "Deep-coat therapy: spa-grade bath, specialized de-shed & undercoat release, deep-conditioning treatment and a luminous blow-out." } }
     ]
   }
   </script>
@@ -312,7 +324,7 @@
           <li>Blueberry facial &amp; teeth freshening</li>
           <li>Signature bandana or bow &amp; finishing spritz</li>
         </ul>
-        <a href="sms:+13049212748?&body=Hi%20Britni!%20I'd%20love%20to%20book%20The%20Poodle%20Package." class="btn btn--gold lux__btn">Reserve This</a>
+        <a href="#book" data-package="The Poodle Package" class="btn btn--gold lux__btn">Reserve This</a>
       </article>
       <article class="lux__card">
         <div class="lux__crest">🛁</div>
@@ -325,7 +337,7 @@
           <li>Nail trim &amp; ear cleaning</li>
           <li>Finishing cologne &amp; a little bow</li>
         </ul>
-        <a href="sms:+13049212748?&body=Hi%20Britni!%20I'd%20love%20to%20book%20The%20Face%20%26%20Fanny%20package." class="btn btn--soft lux__btn">Reserve This</a>
+        <a href="#book" data-package="The Face &amp; Fanny" class="btn btn--soft lux__btn">Reserve This</a>
       </article>
       <article class="lux__card">
         <div class="lux__crest">✨</div>
@@ -338,7 +350,7 @@
           <li>Nail trim &amp; ear care</li>
           <li>Luminous blow-out &amp; signature spritz</li>
         </ul>
-        <a href="sms:+13049212748?&body=Hi%20Britni!%20I'd%20love%20to%20book%20The%20Crown%20Jewel%20De-Shed." class="btn btn--soft lux__btn">Reserve This</a>
+        <a href="#book" data-package="The Crown Jewel De-Shed" class="btn btn--soft lux__btn">Reserve This</a>
       </article>
     </div>
     <p class="services__note">Every dog is welcome in the lap of luxury — all breeds, all sizes. Prefer to keep it classic? Our <a href="#services">signature grooming &amp; spa</a> menu has you covered.</p>
@@ -436,7 +448,21 @@
             <option>Bath &amp; Tidy</option>
             <option>De-Shed Treatment</option>
             <option>Puppy's First Groom</option>
+            <optgroup label="Signature Experiences">
+              <option>The Poodle Package</option>
+              <option>The Face &amp; Fanny</option>
+              <option>The Crown Jewel De-Shed</option>
+            </optgroup>
             <option>Not sure — need advice</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="groomer">Preferred Groomer <span class="field__opt">(optional)</span></label>
+          <select id="groomer" name="groomer">
+            <option value="No preference">No preference</option>
+            <option value="Britni">Britni — Owner &amp; Groomer</option>
+            <option value="Jenefer">Jenefer — Groomer &amp; Stylist</option>
+            <option value="Hannah">Hannah — Bath &amp; Spa Specialist</option>
           </select>
         </div>
         <div class="field">
@@ -454,6 +480,16 @@
           <label for="notes">Anything else? (optional)</label>
           <textarea id="notes" name="notes" rows="2" placeholder="Sensitive skin, matting, special requests…"></textarea>
         </div>
+        <fieldset class="field field--full vax">
+          <legend>Proof of vaccination <span class="vax__req">required</span></legend>
+          <p class="vax__note">Salon policy: we need proof of <strong>current rabies vaccination</strong>. Upload it now, or choose to bring a copy on groom day — pups can't be groomed and may be turned away without it.</p>
+          <label class="vax__opt"><input type="radio" name="vaxMode" value="upload" id="vaxUpload" /> <span>Upload proof now <span class="vax__sub">(photo or PDF)</span></span></label>
+          <div class="vax__file" id="vaxFileWrap" hidden>
+            <input type="file" id="vaxFile" accept="image/jpeg,image/png,image/webp,application/pdf" />
+            <span class="vax__hint">JPEG, PNG, WebP or PDF · up to 8 MB</span>
+          </div>
+          <label class="vax__opt"><input type="radio" name="vaxMode" value="bring" id="vaxBring" /> <span>I'll bring a paper copy on groom day <span class="vax__sub">(I understand my pup can't be groomed without it)</span></span></label>
+        </fieldset>
         <button type="submit" class="btn btn--primary btn--block" id="bookBtn">🩷 Request My Appointment</button>
         <p class="book__status" id="bookStatus" role="status" aria-live="polite"></p>
         <p class="book__fallback">Prefer to text? Message <strong><a href="sms:+13049212748">304-921-2748</a></strong> or email <a href="mailto:groomerbrit@yahoo.com">groomerbrit@yahoo.com</a>.</p>

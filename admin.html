@@ -224,9 +224,11 @@
             <div class="field"><label for="breed">Breed</label><input type="text" id="breed" maxlength="60" placeholder="e.g. Goldendoodle" /></div>
           </div>
           <div class="field"><label for="caption">Caption <span class="muted">(optional — defaults to name · breed)</span></label><input type="text" id="caption" maxlength="80" placeholder="e.g. Fresh spring groom 🌸" /></div>
-          <label class="toggle"><input type="checkbox" id="toFacebook" disabled /> Also post to Facebook <span class="soon">Coming soon</span></label>
+          <label class="toggle"><input type="checkbox" id="toFacebook" disabled /> Also post to Facebook <span class="soon">Auto-post — needs one-time token setup</span></label>
           <button type="submit" class="btn btn--primary btn--block" id="uploadBtn" style="margin-top:1.1rem">Upload to Gallery</button>
           <div class="status" id="uploadStatus"></div>
+          <button type="button" class="btn btn--soft btn--block" id="shareFacebook" style="margin-top:.7rem">📘 Share website to Facebook</button>
+          <p class="muted" style="font-size:.8rem;margin:.4rem 0 0">Works today — no setup. Opens Facebook so you can share the site (with its cover photo) to The Pink Poodle Page or your timeline.</p>
         </form>
 
         <div class="card">

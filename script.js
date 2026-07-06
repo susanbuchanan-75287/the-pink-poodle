@@ -21,14 +21,36 @@ navMobile.querySelectorAll('a').forEach(a =>
 // ===== Footer year =====
 document.getElementById('year').textContent = new Date().getFullYear();
 
-// ===== Booking form -> server-side notify (email now, SMS when Twilio is live) =====
+// ===== Booking form -> spa system (pp_spa_tickets, single source of truth) =====
 const SALON_PHONE = '3049212748'; // Britni's cell (fallback deep-link)
+const SPA_ENDPOINT = 'https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodleSpa';
+// Lightweight "text a stylist" contact leads (no pet/services) stay on the
+// simple lead endpoint; full grooming bookings go through the spa system.
 const BOOK_ENDPOINT = 'https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodleBook';
 const form = document.getElementById('bookForm');
 const bookStatus = document.getElementById('bookStatus');
 const bookBtn = document.getElementById('bookBtn');
 
 const val = (id) => (document.getElementById(id).value || '').trim();
+
+// Reveal the file picker only when "Upload proof now" is selected.
+(function () {
+  const wrap = document.getElementById('vaxFileWrap');
+  const up = document.getElementById('vaxUpload');
+  const br = document.getElementById('vaxBring');
+  function sync() { if (wrap) wrap.hidden = !(up && up.checked); }
+  if (up) up.addEventListener('change', sync);
+  if (br) br.addEventListener('change', sync);
+})();
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error('read failed'));
+    r.readAsDataURL(file);
+  });
+}
 
 function smsFallbackUrl(fields) {
   const lines = [
@@ -37,6 +59,7 @@ function smsFallbackUrl(fields) {
     fields.phone ? `Phone: ${fields.phone}` : '',
     fields.dogName ? `Dog: ${fields.dogName}${fields.breed ? ` (${fields.breed})` : ''}` : (fields.breed ? `Breed/Size: ${fields.breed}` : ''),
     `Service: ${fields.service}`,
+    (fields.groomer && fields.groomer !== 'No preference') ? `Preferred groomer: ${fields.groomer}` : '',
     fields.prefDate ? `Preferred: ${fields.prefDate}` : '',
     fields.notes ? `Notes: ${fields.notes}` : ''
   ].filter(Boolean);
@@ -51,9 +74,31 @@ function setStatus(msg, kind) {
   bookStatus.className = 'book__status' + (kind ? ' book__status--' + kind : '');
 }
 
+// "Reserve This" on the Signature Experiences cards: sms: links do nothing on
+// desktop, so route them to the booking form, preselect the package, and scroll.
+document.querySelectorAll('a[data-package]').forEach((link) => {
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    const pkg = (link.getAttribute('data-package') || '').replace(/&amp;/g, '&').trim();
+    const svc = document.getElementById('service');
+    if (svc && pkg) {
+      const match = Array.from(svc.options).find((o) => o.value === pkg || o.text === pkg);
+      if (match) svc.value = match.value;
+    }
+    const notes = document.getElementById('notes');
+    if (notes && pkg && !new RegExp(pkg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(notes.value)) {
+      notes.value = (notes.value ? notes.value + ' · ' : '') + 'Interested in: ' + pkg;
+    }
+    const book = document.getElementById('book');
+    if (book) book.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setStatus('You\'re booking the ' + pkg + ' — just add your details below. 💎', 'ok');
+    const owner = document.getElementById('ownerName');
+    if (owner) setTimeout(() => owner.focus(), 500);
+  });
+});
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-
   const fields = {
     ownerName: val('ownerName'),
     phone: val('phone'),
@@ -62,6 +107,7 @@ form.addEventListener('submit', async (e) => {
     dogName: val('dogName'),
     breed: val('breed'),
     service: val('service'),
+    groomer: val('groomer'),
     prefDate: val('prefDate'),
     bookDate: val('bookDate'),
     bookTime: val('bookTime'),
@@ -75,24 +121,73 @@ form.addEventListener('submit', async (e) => {
     return;
   }
 
+  // Vaccination proof is required: pick "upload now" or "bring a copy".
+  const vaxUp = document.getElementById('vaxUpload');
+  const vaxBr = document.getElementById('vaxBring');
+  const vaxFile = document.getElementById('vaxFile');
+  const vaxMode = vaxUp && vaxUp.checked ? 'upload' : (vaxBr && vaxBr.checked ? 'bring' : '');
+  if (!vaxMode) {
+    setStatus('Please choose how you\'ll provide proof of vaccination.', 'err');
+    if (vaxUp) vaxUp.focus();
+    return;
+  }
+  const chosenFile = (vaxMode === 'upload' && vaxFile && vaxFile.files && vaxFile.files[0]) ? vaxFile.files[0] : null;
+  if (vaxMode === 'upload' && !chosenFile) {
+    setStatus('Choose a photo or PDF of the vaccination record, or pick "bring a copy".', 'err');
+    return;
+  }
+  if (chosenFile && chosenFile.size > 8 * 1024 * 1024) {
+    setStatus('That file is over 8 MB — please choose a smaller photo or PDF.', 'err');
+    return;
+  }
+
   bookBtn.disabled = true;
   const original = bookBtn.textContent;
   bookBtn.textContent = 'Sending…';
   setStatus('Sending your request…');
 
+  const petNotes = [fields.prefDate ? 'Preferred: ' + fields.prefDate : '', fields.notes].filter(Boolean).join(' · ').slice(0, 300);
+  const payload = {
+    action: 'spaBook',
+    pet: { name: fields.dogName, breed: fields.breed, size: '', notes: petNotes },
+    owner: { name: fields.ownerName, phone: fields.phone, email: fields.email },
+    services: [fields.service],
+    stylist: fields.groomer || 'No preference',
+    requestedDate: fields.bookDate || fields.prefDate,
+    requestedTime: fields.bookTime,
+    vax: { mode: vaxMode, current: true },
+    company: fields.company
+  };
+
   try {
-    const res = await fetch(BOOK_ENDPOINT, {
+    const res = await fetch(SPA_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fields)
+      body: JSON.stringify(payload)
     });
     const data = await res.json().catch(() => ({}));
-    if (res.ok && data.ok) {
-      form.reset();
-      setStatus('🩷 Sent! Britni got your request and will text you back to confirm.', 'ok');
-    } else {
-      throw new Error(data.error || 'send failed');
+    if (!(res.ok && data.ok)) throw new Error(data.error || 'send failed');
+
+    // If they uploaded proof, attach it to the new ticket (best-effort).
+    let uploadNote = '';
+    if (chosenFile && data.code) {
+      try {
+        const dataUrl = await readFileAsDataUrl(chosenFile);
+        const up = await fetch(SPA_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'spaVaxUpload', code: data.code, dataUrl, name: chosenFile.name })
+        });
+        const upData = await up.json().catch(() => ({}));
+        if (!(up.ok && upData.ok)) uploadNote = ' (We couldn\'t attach your file — please bring a copy or text it to 304-921-2748.)';
+      } catch (_) {
+        uploadNote = ' (We couldn\'t attach your file — please bring a copy or text it to 304-921-2748.)';
+      }
     }
+    form.reset();
+    document.getElementById('vaxFileWrap').hidden = true;
+    const remind = vaxMode === 'bring' ? ' Remember to bring proof of current rabies vaccination on groom day.' : '';
+    setStatus('🩷 Sent! Britni got your request' + (data.code ? ' (code ' + data.code + ')' : '') + ' and will text you to confirm.' + remind + uploadNote, 'ok');
   } catch (err) {
     // Fallback: on phones, open Messages pre-filled; otherwise show contact.
     if (/iPad|iPhone|iPod|Android/.test(navigator.userAgent)) {
