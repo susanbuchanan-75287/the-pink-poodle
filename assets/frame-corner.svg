@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <radialGradient id="g" cx="38%" cy="34%" r="72%">
+      <stop offset="0%" stop-color="#fff6d8"/>
+      <stop offset="34%" stop-color="#e6c983"/>
+      <stop offset="66%" stop-color="#c9a24b"/>
+      <stop offset="100%" stop-color="#8a6320"/>
+    </radialGradient>
+    <radialGradient id="j" cx="38%" cy="34%" r="70%">
+      <stop offset="0%" stop-color="#ffd0e6"/>
+      <stop offset="55%" stop-color="#e75a9c"/>
+      <stop offset="100%" stop-color="#b83372"/>
+    </radialGradient>
+    <linearGradient id="p" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f6e6b8"/>
+      <stop offset="100%" stop-color="#b8892f"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(32 32)">
+    <!-- 8 acanthus petals -->
+    <g fill="url(#p)" stroke="#8a6320" stroke-width="0.5">
+      <g id="pet"><path d="M0 -12 C4 -20 -4 -20 0 -28 C4 -20 -4 -20 0 -12 Z"/></g>
+      <use href="#pet" transform="rotate(45)"/>
+      <use href="#pet" transform="rotate(90)"/>
+      <use href="#pet" transform="rotate(135)"/>
+      <use href="#pet" transform="rotate(180)"/>
+      <use href="#pet" transform="rotate(225)"/>
+      <use href="#pet" transform="rotate(270)"/>
+      <use href="#pet" transform="rotate(315)"/>
+    </g>
+    <!-- beaded ring -->
+    <g fill="url(#g)" stroke="#8a6320" stroke-width="0.4">
+      <circle cx="0" cy="-19" r="2.2"/>
+      <circle cx="13.4" cy="-13.4" r="2.2"/>
+      <circle cx="19" cy="0" r="2.2"/>
+      <circle cx="13.4" cy="13.4" r="2.2"/>
+      <circle cx="0" cy="19" r="2.2"/>
+      <circle cx="-13.4" cy="13.4" r="2.2"/>
+      <circle cx="-19" cy="0" r="2.2"/>
+      <circle cx="-13.4" cy="-13.4" r="2.2"/>
+    </g>
+    <!-- medallion body -->
+    <circle r="13" fill="url(#g)" stroke="#8a6320" stroke-width="1"/>
+    <circle r="9.5" fill="none" stroke="#fff6d8" stroke-width="0.8" opacity="0.7"/>
+    <!-- center jewel -->
+    <circle r="6" fill="url(#j)" stroke="#8a6320" stroke-width="0.8"/>
+    <circle cx="-1.6" cy="-1.8" r="1.6" fill="#fff" opacity="0.6"/>
+  </g>
+</svg>

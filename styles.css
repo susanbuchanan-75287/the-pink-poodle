@@ -270,20 +270,36 @@ a { color: inherit; text-decoration: none; }
 /* ===== Gallery — gilded frame masonry ===== */
 .gallery__grid { column-count: 4; column-gap: 1.5rem; }
 .gallery__item {
-  break-inside: avoid; margin: 0 0 1.5rem; cursor: pointer; position: relative;
-  background: #fff; padding: 12px;
-  border: 7px solid transparent;
-  border-image: linear-gradient(135deg, #f7e7c4, #c9a24b 42%, #a9772a 55%, #f1ddab 92%) 1;
-  box-shadow: var(--shadow);
+  break-inside: avoid; margin: 0 0 1.9rem; cursor: pointer; position: relative;
+  background: #fffdf9; padding: 15px;
+  border: 11px solid transparent;
+  border-image: linear-gradient(135deg, #fff4cf 0%, #e6c983 20%, #c9a24b 42%, #a9772a 55%, #e6c983 78%, #f6e6b8 100%) 1;
+  /* carved multi-ridge gilt molding + inner mat keyline + soft gallery shadow */
+  box-shadow:
+    0 0 0 1px #7a5518,
+    inset 0 0 0 1px #7a5518,
+    inset 0 0 0 3px #f6e6b8,
+    inset 0 0 0 4px #b8892f,
+    inset 0 0 1px 6px rgba(122,85,24,0.35),
+    var(--shadow);
   transition: transform 0.45s cubic-bezier(.2,.8,.2,1), box-shadow 0.45s ease;
 }
-.gallery__item img { display: block; width: 100%; height: auto; }
+/* four identical golden corner medallions */
+.gallery__item::before {
+  content: ''; position: absolute; inset: -16px; z-index: 3; pointer-events: none;
+  background-image: url(assets/frame-corner.svg), url(assets/frame-corner.svg), url(assets/frame-corner.svg), url(assets/frame-corner.svg);
+  background-position: top left, top right, bottom left, bottom right;
+  background-repeat: no-repeat;
+  background-size: 40px 40px;
+  filter: drop-shadow(0 2px 3px rgba(58,34,48,0.28));
+}
+.gallery__item img { display: block; width: 100%; height: auto; box-shadow: inset 0 0 0 1px rgba(122,85,24,0.5); }
 .gallery__item figcaption {
   text-align: center; font-family: var(--display); font-style: italic;
   color: var(--pink-deep); font-size: 1.18rem; letter-spacing: 0.01em; margin-top: 0.65rem;
 }
 .gallery__item:nth-child(even) { transform: rotate(0.5deg); }
-.gallery__item:hover { transform: translateY(-7px) rotate(-0.6deg); box-shadow: 0 26px 54px rgba(58,34,48,0.24); z-index: 2; }
+.gallery__item:hover { transform: translateY(-7px) rotate(-0.6deg); box-shadow: 0 0 0 1px #7a5518, inset 0 0 0 1px #7a5518, inset 0 0 0 3px #f6e6b8, inset 0 0 0 4px #b8892f, 0 30px 60px rgba(58,34,48,0.3); z-index: 2; }
 .gallery__item.is-hidden { display: none; }
 .gallery__more-wrap { text-align: center; margin-top: 2.6rem; }
 .gallery__count { color: var(--ink-soft); font-size: 0.9rem; margin-top: 1rem; }
