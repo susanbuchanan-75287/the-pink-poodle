@@ -62,7 +62,7 @@
       <label>Breed / size<input id="petBreed" placeholder="e.g. Goldendoodle, 45 lbs" /></label>
       <label>Services</label>
       <div id="svcList"><p class="muted tiny">Loading services…</p></div>
-      <div id="stylistWrap" class="hide"><label>Preferred stylist<select id="stylistSel"></select></label></div>
+      <div id="stylistWrap" class="hide"><label>Choose your stylist<select id="stylistSel"></select></label></div>
       <label>Choose a day<input id="apptDate" type="date" /></label>
       <div id="slotWrap" class="hide">
         <label>Available times <span class="muted tiny" id="durHint"></span></label>
@@ -134,8 +134,7 @@
     if (j.scheduling) sched = j.scheduling;
     if (sched.perStylist && j.stylists && j.stylists.length) {
       var sel = $("stylistSel");
-      sel.innerHTML = '<option value="No preference">No preference</option>' +
-        j.stylists.map(function (s) { return '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>'; }).join("");
+      sel.innerHTML = j.stylists.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>'; }).join("");
       $("stylistWrap").classList.remove("hide");
       sel.onchange = function () { selTime = ""; if ($("apptDate").value) loadSlots(); };
     }
@@ -153,10 +152,14 @@
   /* ---- date + slot picker ---- */
   function ymd(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
   function setupDatePicker() {
-    var today = new Date();
-    var max = new Date(); max.setDate(max.getDate() + (Number(sched.horizonDays) || 45));
     var el = $("apptDate");
-    el.min = ymd(today); el.max = ymd(max);
+    if (sched.today) { el.min = sched.today; } else { el.min = ymd(new Date()); }
+    if (sched.maxDate) {
+      el.max = sched.maxDate;
+    } else {
+      var max = new Date(); max.setDate(max.getDate() + (Number(sched.horizonDays) || 45));
+      el.max = ymd(max);
+    }
     el.onchange = function () { selTime = ""; loadSlots(); };
   }
   function selectedServiceNames() {
@@ -174,6 +177,7 @@
     var sel = $("stylistSel");
     return (sched.perStylist && sel && !$("stylistWrap").classList.contains("hide")) ? sel.value : "";
   }
+  var slotReqId = 0;
   function loadSlots() {
     var date = $("apptDate").value;
     var wrap = $("slotWrap"), listEl = $("slotList"), msg = $("slotMsg");
@@ -183,8 +187,10 @@
     var dur = selectedDuration();
     $("durHint").textContent = dur ? ("(" + dur + " min appointment)") : "";
     if (slotTimer) clearTimeout(slotTimer);
+    var myReq = ++slotReqId;
     slotTimer = setTimeout(function () {
-      api("spaSlots", { date: date, services: selectedServiceNames(), durationMins: dur || 0, stylist: selectedStylist() }).then(function (j) {
+      api("spaSlots", { date: date, services: selectedServiceNames(), durationMins: dur || 0, stylistId: selectedStylist() }).then(function (j) {
+        if (myReq !== slotReqId) return; // a newer request superseded this one
         var slots = j.slots || [];
         if (!slots.length) { msg.textContent = j.reason === "too-far" ? "That date is beyond our booking window." : "No open times that day — try another date."; return; }
         msg.textContent = "";
@@ -199,7 +205,7 @@
             btn.classList.add("on");
           };
         });
-      }).catch(function (e) { msg.textContent = e.message; });
+      }).catch(function (e) { if (myReq === slotReqId) msg.textContent = e.message; });
     }, 150);
   }
   function hhmm12(t) {
@@ -236,7 +242,7 @@
       pet: { name: petName, breed: $("petBreed").value.trim(), notes: $("notes").value.trim() },
       owner: { name: name, phone: phone, email: $("ownerEmail").value.trim() },
       services: picked,
-      stylist: selectedStylist(),
+      stylistId: selectedStylist(),
       requestedDate: $("apptDate").value,
       requestedTime: selTime,
       durationMins: selectedDuration() || 0,

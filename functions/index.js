@@ -1948,6 +1948,36 @@ async function activeStylists(scope) {
   return out.filter((s) => s.name).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 }
 
+/** Resolve open blocks + capacity for a scope/date, honoring per-stylist mode.
+ *  `wanted` is a stylist id or name (may be empty). Returns
+ *  {ok:true, blocks, capacity, stylist:{id,name}|null} or
+ *  {ok:false, reason:"stylist-required"|"no-stylist"}.
+ *  If per-stylist is on but no stylists are configured yet, falls back to salon
+ *  hours so the salon isn't accidentally unbookable. */
+async function resolveBookingCtx(scope, hours, date, wanted) {
+  const w = String(wanted || "").trim();
+  if (hours.perStylist) {
+    const stylists = await activeStylists(scope);
+    if (!stylists.length) return { ok: true, blocks: blocksForDate(hours, date), capacity: hours.capacity, stylist: null };
+    if (!w || w.toLowerCase() === "no preference") return { ok: false, reason: "stylist-required" };
+    const st = stylists.find((s) => s.id === w || s.name.toLowerCase() === w.toLowerCase());
+    if (!st) return { ok: false, reason: "no-stylist" };
+    return { ok: true, blocks: stylistBlocksForDate(st, date, hours), capacity: 1, stylist: { id: st.id, name: st.name } };
+  }
+  return { ok: true, blocks: blocksForDate(hours, date), capacity: hours.capacity, stylist: null };
+}
+
+/** Whether a start time fits within an open block (room for the full duration)
+ *  and respects the lead-time floor. Makes spaBook authoritative — a client
+ *  can't book a closed day / after-hours / too-soon slot by POSTing directly. */
+function slotIsOpen(blocks, startMin, dur, minStart) {
+  if (startMin < minStart) return false;
+  return blocks.some((bl) => {
+    const bs = hhmmToMin(bl.start), be = hhmmToMin(bl.end);
+    return startMin >= bs && (startMin + dur) <= be;
+  });
+}
+
 /** Structured services (name + minutes) for a scope, used to size appointments. */
 async function servicesFor(scope) {
   let list = [];
@@ -1989,23 +2019,35 @@ function computeSlots(blocks, step, capacity, durationMins, bookedIntervals, min
   return slots;
 }
 
+/** True if a ticket belongs to stylist `st` (match by stable id; fall back to
+ *  name for legacy tickets written before stylistId existed). st null = any. */
+function ticketStylistMatches(x, st) {
+  if (!st) return true;
+  if (x.stylistId) return x.stylistId === st.id;
+  return String(x.stylist || "").trim().toLowerCase() === String(st.name || "").trim().toLowerCase();
+}
+const SLOT_QUERY_CAP = 500;
+
 /** Load same-date appointment intervals [startMin,endMin] for capacity math.
- *  Pass stylistName to count only that stylist's appointments (per-stylist mode). */
-async function bookedIntervalsFor(scope, iso, stylistName) {
+ *  Pass a stylist {id,name} to count only that stylist's appointments.
+ *  Returns {intervals, capped}; capped=true means we hit the read ceiling and
+ *  the caller must fail CLOSED (never invent availability from a partial read). */
+async function bookedIntervalsFor(scope, iso, st) {
   const out = [];
-  const only = stylistName ? String(stylistName).trim().toLowerCase() : "";
+  let capped = false;
   try {
-    const snap = await scope.tix().where("apptDate", "==", iso).limit(500).get();
+    const snap = await scope.tix().where("apptDate", "==", iso).limit(SLOT_QUERY_CAP + 1).get();
+    capped = snap.size > SLOT_QUERY_CAP;
     snap.forEach((d) => {
       const x = d.data() || {};
       if (x.cancelled || x.voided) return;
       if (!isHhmm(x.apptTime)) return;
-      if (only && String(x.stylist || "").trim().toLowerCase() !== only) return;
+      if (!ticketStylistMatches(x, st)) return;
       const s = hhmmToMin(x.apptTime);
       out.push([s, s + (clampInt(x.apptDurationMins, 10, 480, 60))]);
     });
   } catch (e) { console.error("bookedIntervalsFor failed", e && e.message); }
-  return out;
+  return { intervals: out, capped };
 }
 
 function genCode() {
@@ -2638,12 +2680,15 @@ exports.pinkPoodleSpa = onRequest(
         case "spaTenantInfo": {
           // Public: lets a tenant's hosted booking page render the salon name,
           // branding, and service menu. Tenant-scoped only.
+          const okRL = await checkRateLimit("spatenantinfo", ip, { max: 120, windowMs: 10 * 60 * 1000 });
+          if (!okRL) return res.status(429).json({ error: "Too many requests. Please slow down." });
           if (!scope.id) return res.status(400).json({ error: "Unknown salon." });
           const tcfg = scope.tenant.config || {};
           const services = (Array.isArray(tcfg.services) ? tcfg.services : [])
             .map((s) => ({ name: String(s.name || "").slice(0, 60), price: Math.max(0, Number(s.price) || 0), mins: clampInt(s.mins, 10, 480, 60), desc: String(s.desc || "").slice(0, 200) }))
             .filter((s) => s.name).slice(0, 40);
           const hours = await loadHoursFor(scope);
+          const today = todayET();
           const info = {
             ok: true,
             business: scope.tenant.business || "Your Salon",
@@ -2651,7 +2696,7 @@ exports.pinkPoodleSpa = onRequest(
             brand: scope.tenant.brand || {},
             phone: scope.tenant.phone || (scope.tenant.owner && scope.tenant.owner.phone) || "",
             services,
-            scheduling: { horizonDays: hours.horizonDays, slotStep: hours.slotStep, capacity: hours.capacity, leadMins: hours.leadMins, autoConfirm: hours.autoConfirm, perStylist: hours.perStylist },
+            scheduling: { horizonDays: hours.horizonDays, slotStep: hours.slotStep, capacity: hours.capacity, leadMins: hours.leadMins, autoConfirm: hours.autoConfirm, perStylist: hours.perStylist, today, maxDate: addDaysIso(today, hours.horizonDays) },
           };
           if (hours.perStylist) {
             info.stylists = (await activeStylists(scope)).map((s) => ({ id: s.id, name: s.name }));
@@ -2662,35 +2707,28 @@ exports.pinkPoodleSpa = onRequest(
         case "spaSlots": {
           // Public: available appointment start times for a date. Reuses the
           // salon's open-hours model (weekly + closures + per-date overrides)
-          // and subtracts already-booked appointments up to the salon capacity.
-          // In per-stylist mode, a chosen stylist's own availability + calendar
-          // is used (capacity 1 — one dog at a time per groomer).
+          // and subtracts already-booked appointments up to capacity. In
+          // per-stylist mode a chosen stylist's own calendar is used (cap 1).
+          const okRL = await checkRateLimit("spaslots", ip, { max: 120, windowMs: 10 * 60 * 1000 });
+          if (!okRL) return res.status(429).json({ error: "Too many requests. Please slow down." });
           const date = String(b.date || "").slice(0, 10);
           if (!isIsoDate(date)) return res.status(400).json({ error: "Pick a valid date." });
           const hours = await loadHoursFor(scope);
           const today = todayET();
           if (date < today) return res.json({ ok: true, date, closed: true, reason: "past", slots: [] });
           if (date > addDaysIso(today, hours.horizonDays)) return res.json({ ok: true, date, closed: true, reason: "too-far", slots: [] });
-          let dur = clampInt(b.durationMins, 10, 480, 0);
-          if (!dur) {
-            const svc = await servicesFor(scope);
-            dur = durationForServices(svc, b.services);
-          }
-          if (!dur) dur = 60;
+          // Duration is authoritative from the salon's own service durations;
+          // the client-sent durationMins is only a fallback for unknown services.
+          const svc = await servicesFor(scope);
+          let dur = durationForServices(svc, b.services);
+          if (!dur) dur = clampInt(b.durationMins, 10, 480, 0) || 60;
           const minStart = (date === today) ? (etNowMin() + hours.leadMins) : 0;
-          const wantStylist = String(b.stylist || "").trim();
-          if (hours.perStylist && wantStylist && wantStylist.toLowerCase() !== "no preference") {
-            const stylists = await activeStylists(scope);
-            const st = stylists.find((s) => s.id === wantStylist || s.name.toLowerCase() === wantStylist.toLowerCase());
-            if (!st) return res.json({ ok: true, date, closed: true, reason: "no-stylist", slots: [] });
-            const blocks = stylistBlocksForDate(st, date, hours);
-            const booked = await bookedIntervalsFor(scope, date, st.name);
-            const slots = computeSlots(blocks, hours.slotStep, 1, dur, booked, minStart);
-            return res.json({ ok: true, date, durationMins: dur, capacity: 1, stylist: st.name, slots, closed: slots.length === 0 });
-          }
-          const booked = await bookedIntervalsFor(scope, date);
-          const slots = computeSlots(blocksForDate(hours, date), hours.slotStep, hours.capacity, dur, booked, minStart);
-          return res.json({ ok: true, date, durationMins: dur, capacity: hours.capacity, slots, closed: slots.length === 0 });
+          const ctx = await resolveBookingCtx(scope, hours, date, b.stylistId || b.stylist);
+          if (!ctx.ok) return res.json({ ok: true, date, closed: true, reason: ctx.reason, slots: [] });
+          const { intervals, capped } = await bookedIntervalsFor(scope, date, ctx.stylist);
+          if (capped) return res.json({ ok: true, date, closed: true, reason: "busy", slots: [] });
+          const slots = computeSlots(ctx.blocks, hours.slotStep, ctx.capacity, dur, intervals, minStart);
+          return res.json({ ok: true, date, durationMins: dur, capacity: ctx.capacity, stylist: ctx.stylist ? ctx.stylist.name : "", slots, closed: slots.length === 0 });
         }
 
 
@@ -2859,27 +2897,38 @@ exports.pinkPoodleSpa = onRequest(
             const todayCount = await scope.tix().where("date", "==", todayET()).limit(cap + 1).get();
             if (todayCount.size > cap) return res.status(429).json({ error: "This salon has reached today's booking limit." });
           }
-          // Chosen appointment slot (optional). When present, size it by the
-          // selected services' durations and enforce capacity so we never
-          // overbook a slot. Per-stylist mode enforces 1 dog per groomer.
+          // Chosen appointment slot (optional). When present, the SERVER is
+          // authoritative: it re-derives the duration from its own services,
+          // rejects past/beyond-horizon dates, requires the slot to fall inside
+          // an open block (respecting lead time), and enforces capacity inside a
+          // transaction so a direct POST can't bypass spaSlots or double-book.
           const apptDate = isIsoDate(b.requestedDate) ? b.requestedDate : "";
           const apptTime = isHhmm(b.requestedTime) ? b.requestedTime : "";
-          const stylistName = String(b.stylist || "").trim().slice(0, 40);
+          const rawStylist = String(b.stylist || "").trim().slice(0, 40);
           let apptDurationMins = 0;
           let autoConfirmed = false;
+          let bookStylist = null;      // resolved {id,name} when a slot is chosen
+          let slotCtx = null;          // capacity math carried into the txn
           if (apptDate && apptTime) {
             const hoursCfg = await loadHoursFor(scope);
+            const today = todayET();
+            if (apptDate < today) return res.status(400).json({ error: "That date has passed — please pick another day." });
+            if (apptDate > addDaysIso(today, hoursCfg.horizonDays)) return res.status(400).json({ error: "That date is too far out — please pick a sooner day." });
             const svcList = await servicesFor(scope);
-            apptDurationMins = clampInt(b.durationMins, 10, 480, 0) || durationForServices(svcList, services) || 60;
+            apptDurationMins = durationForServices(svcList, services) || clampInt(b.durationMins, 10, 480, 0) || 60;
+            const ctx = await resolveBookingCtx(scope, hoursCfg, apptDate, b.stylistId || rawStylist);
+            if (!ctx.ok) {
+              if (ctx.reason === "stylist-required") return res.status(400).json({ error: "Please choose a stylist for your appointment." });
+              return res.status(400).json({ error: "That stylist isn't available — please choose another." });
+            }
+            bookStylist = ctx.stylist; // null in salon-capacity mode
             const startMin = hhmmToMin(apptTime);
-            const perStylistPick = hoursCfg.perStylist && stylistName && stylistName.toLowerCase() !== "no preference";
-            const cap = perStylistPick ? 1 : hoursCfg.capacity;
-            const booked = await bookedIntervalsFor(scope, apptDate, perStylistPick ? stylistName : "");
-            const overlaps = booked.filter(([s, e]) => startMin < e && (startMin + apptDurationMins) > s).length;
-            if (overlaps >= cap) {
-              return res.status(409).json({ error: perStylistPick ? (stylistName + " is booked at that time — please pick another slot.") : "That time just filled up — please pick another slot." });
+            const minStart = (apptDate === today) ? (etNowMin() + hoursCfg.leadMins) : 0;
+            if (!slotIsOpen(ctx.blocks, startMin, apptDurationMins, minStart)) {
+              return res.status(400).json({ error: "That time isn't available — please pick an open slot." });
             }
             autoConfirmed = !!hoursCfg.autoConfirm;
+            slotCtx = { cap: ctx.capacity, startMin, dur: apptDurationMins, stylist: bookStylist };
           }
           const rec = {
             code: genCode(),
@@ -2891,7 +2940,8 @@ exports.pinkPoodleSpa = onRequest(
             owner: { name: String(owner.name || "").slice(0, 80), phone: normalizePhone(owner.phone), email: String(owner.email || "").slice(0, 120) },
             services,
             items,
-            stylist: stylistName || "No preference",
+            stylist: bookStylist ? bookStylist.name : (rawStylist || "No preference"),
+            stylistId: bookStylist ? bookStylist.id : "",
             requestedDate: String(b.requestedDate || "").slice(0, 40),
             requestedTime: String(b.requestedTime || "").slice(0, 40),
             // Vaccination intake: proof uploaded now, or acknowledged bring-on-day.
@@ -2906,7 +2956,35 @@ exports.pinkPoodleSpa = onRequest(
             est: Math.max(0, Number(b.est) || 0),
             createdAt: now(),
           };
-          const r = await scope.tix().add(rec);
+          let r;
+          if (slotCtx) {
+            // Transactional recount + create closes the double-booking race.
+            try {
+              r = await db.runTransaction(async (t) => {
+                const snap = await t.get(scope.tix().where("apptDate", "==", apptDate).limit(SLOT_QUERY_CAP + 1));
+                if (snap.size > SLOT_QUERY_CAP) throw new Error("SLOT_BUSY"); // partial read → fail closed
+                let overlaps = 0;
+                snap.forEach((d) => {
+                  const x = d.data() || {};
+                  if (x.cancelled || x.voided) return;
+                  if (!isHhmm(x.apptTime)) return;
+                  if (!ticketStylistMatches(x, slotCtx.stylist)) return;
+                  const s = hhmmToMin(x.apptTime), e = s + clampInt(x.apptDurationMins, 10, 480, 60);
+                  if (slotCtx.startMin < e && (slotCtx.startMin + slotCtx.dur) > s) overlaps++;
+                });
+                if (overlaps >= slotCtx.cap) throw new Error("SLOT_FULL");
+                const ref = scope.tix().doc();
+                t.create(ref, rec);
+                return ref;
+              });
+            } catch (e) {
+              if (e && e.message === "SLOT_FULL") return res.status(409).json({ error: slotCtx.stylist ? (slotCtx.stylist.name + " is booked at that time — please pick another slot.") : "That time just filled up — please pick another slot." });
+              if (e && e.message === "SLOT_BUSY") return res.status(409).json({ error: "That day is very busy — please pick another day." });
+              throw e;
+            }
+          } else {
+            r = await scope.tix().add(rec);
+          }
           const clientId = await upsertClientFromBooking(rec, scope);
           if (clientId) await r.set({ clientId }, { merge: true });
           // Auto-confirm: email the owner right away that their slot is confirmed.
@@ -2914,6 +2992,7 @@ exports.pinkPoodleSpa = onRequest(
             try {
               const br = scope.brand || {};
               const niceTime = apptTime;
+              const stylistLabel = rec.stylist && rec.stylist.toLowerCase() !== "no preference" ? rec.stylist : "";
               await sendEmail({
                 to: rec.owner.email,
                 subject: `${br.emoji || "🐾"} You're booked at ${br.name || "our salon"} — ${apptDate} ${niceTime}`,
@@ -2923,7 +3002,7 @@ exports.pinkPoodleSpa = onRequest(
                   <ul>
                     <li><b>When:</b> ${esc(apptDate)} at ${esc(niceTime)}</li>
                     <li><b>Services:</b> ${esc(services.join(", "))}</li>
-                    ${stylistName && stylistName.toLowerCase() !== "no preference" ? "<li><b>Stylist:</b> " + esc(stylistName) + "</li>" : ""}
+                    ${stylistLabel ? "<li><b>Stylist:</b> " + esc(stylistLabel) + "</li>" : ""}
                   </ul>
                   <p>Your tracking code is <b>${esc(rec.code)}</b>.</p>
                   <p style="color:#8a7580">${esc(br.name || "")}${br.phone ? " · " + esc(br.phone) : ""}</p>
