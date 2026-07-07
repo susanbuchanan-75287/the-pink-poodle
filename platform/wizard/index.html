@@ -121,6 +121,21 @@
       <h2>✂️ Services &amp; pricing</h2>
       <div id="services"></div>
       <button class="btn btn--ghost btn--sm" id="addSvc" type="button">+ Add a service</button>
+      <p class="hint">Minutes per service sizes each appointment on your online booking calendar.</p>
+    </div>
+
+    <div class="panel">
+      <h2>🗓️ Booking calendar</h2>
+      <p class="hint">Set the days &amp; hours you take appointments. Clients pick a real open time slot at thepinkpoodle.dog/book.html.</p>
+      <div id="hoursGrid"></div>
+      <div class="grid2" style="margin-top:.6rem">
+        <label>Dogs at once (capacity)<input id="capacity" type="number" min="1" step="1" value="2" /></label>
+        <label>Slot length (min)<input id="slotStep" type="number" min="10" step="5" value="30" /></label>
+      </div>
+      <div class="grid2">
+        <label>Least notice (hours)<input id="leadHours" type="number" min="0" step="1" value="1" /></label>
+        <label>Book up to (days out)<input id="horizonDays" type="number" min="1" step="1" value="45" /></label>
+      </div>
     </div>
 
     <div class="panel">
@@ -245,6 +260,7 @@
       services.push({
         name: name,
         price: parseFloat(row.querySelector(".s-price").value) || 0,
+        mins: parseInt(row.querySelector(".s-mins").value, 10) || 60,
         desc: row.querySelector(".s-desc").value.trim(),
       });
     });
@@ -268,6 +284,7 @@
       emoji: $("emoji").value.trim() || "🐾",
       about: $("about").value.trim(),
       services: services,
+      hoursConfig: collectHours(),
       reviews: reviews,
       bookingEndpoint: $("bookMode").value === "endpoint" ? $("bookingEndpoint").value.trim() : "",
       domain: $("domainMode").value === "have" ? $("domainName").value.trim() : "",
@@ -307,13 +324,16 @@
     d.innerHTML =
       '<div class="grid2"><label>Service<input class="s-name" /></label>' +
       '<label>Price ($)<input class="s-price" type="number" min="0" step="1" /></label></div>' +
-      '<label>Short description<input class="s-desc" /></label>' +
+      '<div class="grid2"><label>Minutes<input class="s-mins" type="number" min="10" step="5" placeholder="60" /></label>' +
+      '<label>Short description<input class="s-desc" /></label></div>' +
       '<button class="del" type="button">✕ remove</button>';
     d.querySelector(".s-name").value = s.name || "";
     d.querySelector(".s-price").value = s.price != null ? s.price : "";
+    d.querySelector(".s-mins").value = s.mins != null ? s.mins : "";
     d.querySelector(".s-desc").value = s.desc || "";
     d.querySelector(".s-name").addEventListener("input", render);
     d.querySelector(".s-price").addEventListener("input", render);
+    d.querySelector(".s-mins").addEventListener("input", render);
     d.querySelector(".s-desc").addEventListener("input", render);
     d.querySelector(".del").onclick = function () { d.remove(); render(); };
     return d;
@@ -373,9 +393,47 @@
     setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1000);
   }
 
+  /* ---- booking calendar (weekly hours) ---- */
+  var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var HOURS_DEFAULT = { 1: ["09:00", "17:00"], 2: ["09:00", "17:00"], 3: ["09:00", "17:00"], 4: ["09:00", "17:00"], 5: ["09:00", "17:00"], 6: ["10:00", "14:00"] };
+  function buildHoursGrid() {
+    var g = $("hoursGrid");
+    g.innerHTML = "";
+    for (var d = 0; d <= 6; d++) {
+      var def = HOURS_DEFAULT[d];
+      var row = document.createElement("div");
+      row.className = "grid2"; row.style.alignItems = "end"; row.style.gap = ".5rem";
+      row.innerHTML =
+        '<label style="display:flex;align-items:center;gap:.4rem;font-weight:600">' +
+        '<input type="checkbox" class="h-on" data-d="' + d + '" style="width:auto"' + (def ? " checked" : "") + ' /> ' + DAYS[d] + '</label>' +
+        '<div class="grid2" style="gap:.4rem"><input type="time" class="h-start" data-d="' + d + '" value="' + (def ? def[0] : "09:00") + '" />' +
+        '<input type="time" class="h-end" data-d="' + d + '" value="' + (def ? def[1] : "17:00") + '" /></div>';
+      g.appendChild(row);
+    }
+    g.querySelectorAll("input").forEach(function (el) { el.addEventListener("input", render); });
+  }
+  function collectHours() {
+    var days = {};
+    $("hoursGrid").querySelectorAll(".h-on").forEach(function (cb) {
+      var d = cb.getAttribute("data-d");
+      if (!cb.checked) return;
+      var start = $("hoursGrid").querySelector('.h-start[data-d="' + d + '"]').value;
+      var end = $("hoursGrid").querySelector('.h-end[data-d="' + d + '"]').value;
+      if (start && end && end > start) days[d] = [{ start: start, end: end }];
+    });
+    return {
+      slotStep: parseInt($("slotStep").value, 10) || 30,
+      capacity: parseInt($("capacity").value, 10) || 1,
+      leadMins: (parseInt($("leadHours").value, 10) || 0) * 60,
+      horizonDays: parseInt($("horizonDays").value, 10) || 45,
+      days: days,
+    };
+  }
+
   /* ---- wire up ---- */
   var inputs = ["business", "slug", "owner", "town", "phone", "sms", "email", "emoji", "address", "hours",
-    "tagline", "about", "c_primary", "c_accent", "c_ink", "c_cream", "bookingEndpoint", "bookMode"];
+    "tagline", "about", "c_primary", "c_accent", "c_ink", "c_cream", "bookingEndpoint", "bookMode",
+    "capacity", "slotStep", "leadHours", "horizonDays"];
   inputs.forEach(function (id) { $(id).addEventListener("input", render); });
   $("slug").addEventListener("input", function () { slugTouched = true; });
   $("business").addEventListener("input", function () {
@@ -500,8 +558,9 @@
   $("tagline").value = "Gentle, expert grooming for every pup";
   $("hours").value = "Tue–Sat 9–5, by appointment";
   $("about").value = "Happy Tails is a locally owned studio where every dog is treated like family. Small-batch scheduling means calm, unhurried grooms.";
-  $("services").appendChild(svcRow({ name: "Full groom (small dog)", price: 55, desc: "Bath, haircut, nails, ears." }));
-  $("services").appendChild(svcRow({ name: "Bath & tidy", price: 35, desc: "Wash, blow-dry, nail trim." }));
+  buildHoursGrid();
+  $("services").appendChild(svcRow({ name: "Full groom (small dog)", price: 55, mins: 75, desc: "Bath, haircut, nails, ears." }));
+  $("services").appendChild(svcRow({ name: "Bath & tidy", price: 35, mins: 45, desc: "Wash, blow-dry, nail trim." }));
   $("reviews").appendChild(revRow({ text: "Best groomer in town — my doodle has never looked better!", who: "Morgan P." }));
   render();
 })();

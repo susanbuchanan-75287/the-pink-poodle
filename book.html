@@ -21,6 +21,11 @@
   .svc{display:flex;align-items:center;gap:.5rem;padding:.4rem 0;border-bottom:1px dashed var(--line);font-weight:500}
   .svc input{width:auto}
   .svc .price{margin-left:auto;font-weight:700;color:var(--pink)}
+  .svc .mins{margin-left:.6rem;font-size:.78rem;color:#8a7580;font-weight:600}
+  .slots{display:flex;flex-wrap:wrap;gap:.4rem;margin:.4rem 0}
+  .slot{padding:.5rem .7rem;border-radius:999px;border:1.5px solid var(--pink);background:#fff;color:var(--pink);font-weight:700;cursor:pointer;font:inherit;font-size:.9rem}
+  .slot.on{background:var(--pink);color:#fff}
+  .slot small{display:block;font-size:.62rem;font-weight:600;opacity:.85}
   .btn{display:inline-block;width:100%;padding:.85rem;border-radius:999px;font-weight:700;border:2px solid var(--pink);background:var(--pink);color:#fff;cursor:pointer;font:inherit;margin-top:1rem}
   .btn.ghost{background:#fff;color:var(--pink)}
   .btn:disabled{opacity:.5;cursor:default}
@@ -57,10 +62,15 @@
       <label>Breed / size<input id="petBreed" placeholder="e.g. Goldendoodle, 45 lbs" /></label>
       <label>Services</label>
       <div id="svcList"><p class="muted tiny">Loading services…</p></div>
-      <label>Preferred day/time<input id="preferred" placeholder="e.g. Saturday morning" /></label>
+      <label>Choose a day<input id="apptDate" type="date" /></label>
+      <div id="slotWrap" class="hide">
+        <label>Available times <span class="muted tiny" id="durHint"></span></label>
+        <div class="slots" id="slotList"></div>
+        <p class="muted tiny" id="slotMsg"></p>
+      </div>
       <label>Notes<textarea id="notes" rows="2" placeholder="Anything we should know?"></textarea></label>
       <input id="company" class="hide" tabindex="-1" autocomplete="off" aria-hidden="true" />
-      <button class="btn" id="bookBtn">Request appointment</button>
+      <button class="btn" id="bookBtn">Book appointment</button>
       <p class="note" id="bookNote"></p>
     </div>
     <div id="bookDone" class="hide center">
@@ -101,6 +111,9 @@
   var PUSH_CFG = { apiKey: "AIzaSyAVU4PeZJI8xqo7YOm8QiKvryEVXuv9gLk", authDomain: "binditails-da2de.firebaseapp.com", projectId: "binditails-da2de", storageBucket: "binditails-da2de.firebasestorage.app", messagingSenderId: "376117416695", appId: "1:376117416695:web:f11c59342cc6a750d739f2" };
   var $ = function (id) { return document.getElementById(id); };
   var services = [];
+  var sched = { horizonDays: 45, slotStep: 30, capacity: 1, leadMins: 60 };
+  var selTime = "";
+  var slotTimer = null;
 
   function api(action, extra) {
     var body = Object.assign({ action: action, tenantId: TENANT }, extra || {});
@@ -117,13 +130,71 @@
     $("emoji").textContent = j.emoji || "🐾";
     if (j.phone) $("salonPhone").textContent = j.phone;
     services = j.services || [];
+    if (j.scheduling) sched = j.scheduling;
+    setupDatePicker();
     var list = $("svcList");
     if (!services.length) { list.innerHTML = '<p class="muted tiny">Ask us about our services.</p>'; return; }
     list.innerHTML = services.map(function (s, i) {
       return '<label class="svc"><input type="checkbox" value="' + i + '" /> ' + esc(s.name) +
+        (s.mins ? '<span class="mins">~' + s.mins + ' min</span>' : '') +
         '<span class="price">$' + (Number(s.price) || 0) + '</span></label>';
     }).join("");
+    document.querySelectorAll("#svcList input").forEach(function (c) { c.onchange = onSelectionChange; });
   }).catch(function () { $("svcList").innerHTML = '<p class="err tiny">This salon isn\'t set up yet.</p>'; });
+
+  /* ---- date + slot picker ---- */
+  function ymd(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  function setupDatePicker() {
+    var today = new Date();
+    var max = new Date(); max.setDate(max.getDate() + (Number(sched.horizonDays) || 45));
+    var el = $("apptDate");
+    el.min = ymd(today); el.max = ymd(max);
+    el.onchange = function () { selTime = ""; loadSlots(); };
+  }
+  function selectedServiceNames() {
+    var picked = [];
+    document.querySelectorAll("#svcList input:checked").forEach(function (c) { var s = services[Number(c.value)]; if (s) picked.push(s.name); });
+    return picked;
+  }
+  function selectedDuration() {
+    var mins = 0;
+    document.querySelectorAll("#svcList input:checked").forEach(function (c) { var s = services[Number(c.value)]; if (s) mins += (Number(s.mins) || 60); });
+    return mins;
+  }
+  function onSelectionChange() { selTime = ""; if ($("apptDate").value) loadSlots(); }
+  function loadSlots() {
+    var date = $("apptDate").value;
+    var wrap = $("slotWrap"), listEl = $("slotList"), msg = $("slotMsg");
+    if (!date) { wrap.classList.add("hide"); return; }
+    wrap.classList.remove("hide");
+    listEl.innerHTML = ""; msg.textContent = "Checking availability…";
+    var dur = selectedDuration();
+    $("durHint").textContent = dur ? ("(" + dur + " min appointment)") : "";
+    if (slotTimer) clearTimeout(slotTimer);
+    slotTimer = setTimeout(function () {
+      api("spaSlots", { date: date, services: selectedServiceNames(), durationMins: dur || 0 }).then(function (j) {
+        var slots = j.slots || [];
+        if (!slots.length) { msg.textContent = j.reason === "too-far" ? "That date is beyond our booking window." : "No open times that day — try another date."; return; }
+        msg.textContent = "";
+        listEl.innerHTML = slots.map(function (s) {
+          var cap = (j.capacity > 1 && s.remaining <= 2) ? '<small>' + s.remaining + ' left</small>' : '';
+          return '<button type="button" class="slot" data-t="' + s.time + '">' + hhmm12(s.time) + cap + '</button>';
+        }).join("");
+        listEl.querySelectorAll(".slot").forEach(function (btn) {
+          btn.onclick = function () {
+            selTime = btn.getAttribute("data-t");
+            listEl.querySelectorAll(".slot").forEach(function (x) { x.classList.remove("on"); });
+            btn.classList.add("on");
+          };
+        });
+      }).catch(function (e) { msg.textContent = e.message; });
+    }, 150);
+  }
+  function hhmm12(t) {
+    var p = t.split(":"), h = Number(p[0]), m = p[1];
+    var ap = h >= 12 ? "PM" : "AM", h12 = h % 12; if (h12 === 0) h12 = 12;
+    return h12 + ":" + m + " " + ap;
+  }
 
   /* ---- tabs ---- */
   function tab(which) {
@@ -144,18 +215,18 @@
     var phone = $("ownerPhone").value.trim();
     if (!petName) { setNote("bookNote", "Please add your pet's name.", true); return; }
     if (!name || !phone) { setNote("bookNote", "Please add your name and mobile.", true); return; }
-    var picked = [];
-    document.querySelectorAll("#svcList input:checked").forEach(function (c) {
-      var s = services[Number(c.value)]; if (s) picked.push(s.name);
-    });
+    var picked = selectedServiceNames();
     if (!picked.length) { setNote("bookNote", "Choose at least one service.", true); return; }
+    if (!$("apptDate").value) { setNote("bookNote", "Please choose a day.", true); return; }
+    if (!selTime) { setNote("bookNote", "Please pick an available time.", true); return; }
     $("bookBtn").disabled = true; setNote("bookNote", "Sending…", false);
     api("spaBook", {
-      pet: { name: petName, breed: $("petBreed").value.trim() },
+      pet: { name: petName, breed: $("petBreed").value.trim(), notes: $("notes").value.trim() },
       owner: { name: name, phone: phone, email: $("ownerEmail").value.trim() },
       services: picked,
-      requestedDate: $("preferred").value.trim(),
-      requestedTime: "",
+      requestedDate: $("apptDate").value,
+      requestedTime: selTime,
+      durationMins: selectedDuration() || 0,
       company: ""
     }).then(function (j) {
       $("bookBtn").disabled = false;

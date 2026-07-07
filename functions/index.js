@@ -1786,6 +1786,172 @@ async function loadFeesFor(scope) {
   return DEFAULT_FEES;
 }
 
+/* ---- Booking calendar: open hours, capacity, and bookable slots -----------
+ * A salon publishes weekly open hours (per weekday), a slot step, how many
+ * dogs it can handle at once (capacity), a lead-time, and a booking horizon.
+ * Holidays/closures and single-day overrides beat the weekly pattern — the
+ * same precedence the per-stylist availability model already uses:
+ *   dateHours override  >  closed range  >  weekly day  >  closed.
+ * Slots are computed by walking each open block, stepping by slotStep, and
+ * keeping any start where (capacity − overlapping booked appts) > 0.
+ * ------------------------------------------------------------------------- */
+const DEFAULT_HOURS = {
+  slotStep: 30,      // minutes between slot starts
+  capacity: 2,       // dogs the salon can groom at once
+  leadMins: 60,      // minimum notice before a same-day slot
+  horizonDays: 45,   // how far out customers may book
+  days: {            // 0=Sun … 6=Sat
+    "1": [{ start: "09:00", end: "17:00" }],
+    "2": [{ start: "09:00", end: "17:00" }],
+    "3": [{ start: "09:00", end: "17:00" }],
+    "4": [{ start: "09:00", end: "17:00" }],
+    "5": [{ start: "09:00", end: "17:00" }],
+    "6": [{ start: "10:00", end: "14:00" }],
+  },
+  closed: [],        // [{from,to,reason}] holiday/vacation ranges
+  dateHours: {},     // {"YYYY-MM-DD": {on:false} | {on:true, blocks:[{start,end}]}}
+};
+
+function clampInt(v, min, max, def) {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(max, n));
+}
+function hhmmToMin(s) { const [h, m] = String(s).split(":").map(Number); return (h * 60) + m; }
+function minToHhmm(n) { const h = Math.floor(n / 60), m = n % 60; return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"); }
+function isoWeekday(iso) { const [y, m, d] = String(iso).split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); }
+function etNowMin() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+  let h = 0, mi = 0;
+  parts.forEach((p) => { if (p.type === "hour") h = Number(p.value) % 24; if (p.type === "minute") mi = Number(p.value); });
+  return (h * 60) + mi;
+}
+function cleanBlock(x) {
+  if (!x || typeof x !== "object") return null;
+  if (!isHhmm(x.start) || !isHhmm(x.end)) return null;
+  if (hhmmToMin(x.end) <= hhmmToMin(x.start)) return null;
+  return { start: x.start, end: x.end };
+}
+
+/** Validate + fill an hours config (from a config doc or wizard payload). */
+function normHoursConfig(raw) {
+  const h = (raw && typeof raw === "object") ? raw : {};
+  const out = {
+    slotStep: clampInt(h.slotStep, 10, 240, DEFAULT_HOURS.slotStep),
+    capacity: clampInt(h.capacity, 1, 40, DEFAULT_HOURS.capacity),
+    leadMins: clampInt(h.leadMins, 0, 14 * 24 * 60, DEFAULT_HOURS.leadMins),
+    horizonDays: clampInt(h.horizonDays, 1, 180, DEFAULT_HOURS.horizonDays),
+    days: {},
+    closed: [],
+    dateHours: {},
+  };
+  const daysSrc = (h.days && typeof h.days === "object") ? h.days : null;
+  if (daysSrc) {
+    for (let d = 0; d <= 6; d++) {
+      const arr = Array.isArray(daysSrc[d]) ? daysSrc[d] : (Array.isArray(daysSrc[String(d)]) ? daysSrc[String(d)] : []);
+      const blocks = arr.map(cleanBlock).filter(Boolean).slice(0, 4);
+      if (blocks.length) out.days[String(d)] = blocks;
+    }
+  }
+  if (!Object.keys(out.days).length) out.days = DEFAULT_HOURS.days;
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  (Array.isArray(h.closed) ? h.closed : []).slice(0, 80).forEach((c) => {
+    if (c && dateRe.test(String(c.from)) && dateRe.test(String(c.to)) && String(c.from) <= String(c.to)) {
+      out.closed.push({ from: String(c.from), to: String(c.to), reason: String(c.reason || "").slice(0, 80) });
+    }
+  });
+  const dh = (h.dateHours && typeof h.dateHours === "object") ? h.dateHours : {};
+  Object.keys(dh).slice(0, 366).forEach((iso) => {
+    if (!dateRe.test(iso)) return;
+    const v = dh[iso] || {};
+    if (v.on === false || v.off === true) { out.dateHours[iso] = { on: false }; return; }
+    const blocks = (Array.isArray(v.blocks) ? v.blocks : []).map(cleanBlock).filter(Boolean).slice(0, 4);
+    if (blocks.length) out.dateHours[iso] = { on: true, blocks };
+  });
+  return out;
+}
+
+/** Load a scope's booking hours: config doc first, then tenant.config.hours, else defaults. */
+async function loadHoursFor(scope) {
+  try {
+    const snap = await scope.configDoc("hours").get();
+    if (snap.exists) return normHoursConfig(snap.data());
+  } catch (e) {
+    console.error("loadHoursFor failed", e && e.message);
+  }
+  if (scope.tenant && scope.tenant.config && scope.tenant.config.hoursConfig) return normHoursConfig(scope.tenant.config.hoursConfig);
+  return normHoursConfig(null);
+}
+
+/** Open blocks for a single date, applying override > closed > weekly precedence. */
+function blocksForDate(hours, iso) {
+  const ov = hours.dateHours[iso];
+  if (ov) {
+    if (ov.on === false) return [];
+    if (Array.isArray(ov.blocks) && ov.blocks.length) return ov.blocks;
+  }
+  for (const c of hours.closed) { if (iso >= c.from && iso <= c.to) return []; }
+  return hours.days[String(isoWeekday(iso))] || [];
+}
+
+/** Structured services (name + minutes) for a scope, used to size appointments. */
+async function servicesFor(scope) {
+  let list = [];
+  if (scope.tenant && scope.tenant.config && Array.isArray(scope.tenant.config.services)) {
+    list = scope.tenant.config.services;
+  } else {
+    try {
+      const snap = await scope.configDoc("services").get();
+      if (snap.exists && Array.isArray(snap.data().services)) list = snap.data().services;
+    } catch (e) { console.error("servicesFor failed", e && e.message); }
+  }
+  return list.map((s) => ({
+    name: String((s && s.name) || "").slice(0, 60),
+    mins: clampInt(s && s.mins, 10, 480, 60),
+    price: Math.max(0, Number(s && s.price) || 0),
+  })).filter((s) => s.name);
+}
+
+/** Total appointment minutes for a set of chosen service names (min one slot). */
+function durationForServices(serviceList, chosenNames) {
+  const chosen = Array.isArray(chosenNames) ? chosenNames.map(String) : [];
+  let total = 0;
+  chosen.forEach((name) => { const s = serviceList.find((x) => x.name === name); if (s) total += s.mins; });
+  return total;
+}
+
+/** Compute bookable slots for a date given hours, a duration, and existing appts. */
+function computeSlots(hours, iso, durationMins, bookedIntervals, minStartMin) {
+  const step = hours.slotStep;
+  const slots = [];
+  for (const bl of blocksForDate(hours, iso)) {
+    const bs = hhmmToMin(bl.start), be = hhmmToMin(bl.end);
+    for (let t = Math.ceil(bs / step) * step; t + durationMins <= be; t += step) {
+      if (t < minStartMin) continue;
+      const overlaps = bookedIntervals.filter(([s, e]) => t < e && (t + durationMins) > s).length;
+      const remaining = hours.capacity - overlaps;
+      if (remaining > 0) slots.push({ time: minToHhmm(t), remaining });
+    }
+  }
+  return slots;
+}
+
+/** Load same-date appointment intervals [startMin,endMin] for capacity math. */
+async function bookedIntervalsFor(scope, iso) {
+  const out = [];
+  try {
+    const snap = await scope.tix().where("apptDate", "==", iso).limit(500).get();
+    snap.forEach((d) => {
+      const x = d.data() || {};
+      if (x.cancelled || x.voided) return;
+      if (!isHhmm(x.apptTime)) return;
+      const s = hhmmToMin(x.apptTime);
+      out.push([s, s + (clampInt(x.apptDurationMins, 10, 480, 60))]);
+    });
+  } catch (e) { console.error("bookedIntervalsFor failed", e && e.message); }
+  return out;
+}
+
 function genCode() {
   const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I
   let s = "";
@@ -2380,10 +2546,10 @@ exports.pinkPoodleSpa = onRequest(
     const b = req.body || {};
     const action = b.action;
     const ip = clientIp(req);
-    const PUBLIC = ["spaMenu", "spaTenantInfo", "spaBook", "spaTrack", "spaTrackPush", "spaCancelByCode", "spaConfirmByCode", "spaRescheduleByCode", "spaWaitlistJoin", "spaVaxUpload", "spaPlatformLead", "spaProvisionTenant"];
+    const PUBLIC = ["spaMenu", "spaTenantInfo", "spaSlots", "spaBook", "spaTrack", "spaTrackPush", "spaCancelByCode", "spaConfirmByCode", "spaRescheduleByCode", "spaWaitlistJoin", "spaVaxUpload", "spaPlatformLead", "spaProvisionTenant"];
     // Actions a provisioned tenant salon may call. Strict allowlist: anything
     // not here is flagship-only, so a tenant request can't reach unscoped code.
-    const TENANT_ACTIONS = ["spaMenu", "spaTenantInfo", "spaBook", "spaTrack", "spaTrackPush", "spaCancelByCode", "spaConfirmByCode", "spaLogin", "spaBoard", "spaAdvance", "spaNotifyOwner", "spaStaffList", "spaStaffPin"];
+    const TENANT_ACTIONS = ["spaMenu", "spaTenantInfo", "spaSlots", "spaBook", "spaTrack", "spaTrackPush", "spaCancelByCode", "spaConfirmByCode", "spaLogin", "spaBoard", "spaAdvance", "spaNotifyOwner", "spaStaffList", "spaStaffPin"];
     const tenantId = normTenantId(b.tenantId);
     let actor = null;
     let scope = flagshipScope();
@@ -2419,8 +2585,9 @@ exports.pinkPoodleSpa = onRequest(
           if (!scope.id) return res.status(400).json({ error: "Unknown salon." });
           const tcfg = scope.tenant.config || {};
           const services = (Array.isArray(tcfg.services) ? tcfg.services : [])
-            .map((s) => ({ name: String(s.name || "").slice(0, 60), price: Math.max(0, Number(s.price) || 0), desc: String(s.desc || "").slice(0, 200) }))
+            .map((s) => ({ name: String(s.name || "").slice(0, 60), price: Math.max(0, Number(s.price) || 0), mins: clampInt(s.mins, 10, 480, 60), desc: String(s.desc || "").slice(0, 200) }))
             .filter((s) => s.name).slice(0, 40);
+          const hours = await loadHoursFor(scope);
           return res.json({
             ok: true,
             business: scope.tenant.business || "Your Salon",
@@ -2428,8 +2595,32 @@ exports.pinkPoodleSpa = onRequest(
             brand: scope.tenant.brand || {},
             phone: scope.tenant.phone || (scope.tenant.owner && scope.tenant.owner.phone) || "",
             services,
+            scheduling: { horizonDays: hours.horizonDays, slotStep: hours.slotStep, capacity: hours.capacity, leadMins: hours.leadMins },
           });
         }
+
+        case "spaSlots": {
+          // Public: available appointment start times for a date. Reuses the
+          // salon's open-hours model (weekly + closures + per-date overrides)
+          // and subtracts already-booked appointments up to the salon capacity.
+          const date = String(b.date || "").slice(0, 10);
+          if (!isIsoDate(date)) return res.status(400).json({ error: "Pick a valid date." });
+          const hours = await loadHoursFor(scope);
+          const today = todayET();
+          if (date < today) return res.json({ ok: true, date, closed: true, reason: "past", slots: [] });
+          if (date > addDaysIso(today, hours.horizonDays)) return res.json({ ok: true, date, closed: true, reason: "too-far", slots: [] });
+          let dur = clampInt(b.durationMins, 10, 480, 0);
+          if (!dur) {
+            const svc = await servicesFor(scope);
+            dur = durationForServices(svc, b.services);
+          }
+          if (!dur) dur = 60;
+          const booked = await bookedIntervalsFor(scope, date);
+          const minStart = (date === today) ? (etNowMin() + hours.leadMins) : 0;
+          const slots = computeSlots(hours, date, dur, booked, minStart);
+          return res.json({ ok: true, date, durationMins: dur, capacity: hours.capacity, slots, closed: slots.length === 0 });
+        }
+
 
         case "spaPlatformLead": {
           // Public lead capture for the groomer website setup wizard (Model B:
@@ -2508,6 +2699,18 @@ exports.pinkPoodleSpa = onRequest(
           const pin = (existing && existing.pin) ? String(existing.pin) : String(Math.floor(1000 + Math.random() * 9000));
           let safeConfig = {};
           try { const raw = JSON.stringify(cfg); if (raw.length <= 30000) safeConfig = JSON.parse(raw); } catch (_e) { safeConfig = {}; }
+          // Clean the booking calendar + service durations so slot math is sound.
+          // (config.hours stays the marketing-site display string; the bookable
+          //  calendar lives under config.hoursConfig.)
+          safeConfig.hoursConfig = normHoursConfig(safeConfig.hoursConfig);
+          if (Array.isArray(safeConfig.services)) {
+            safeConfig.services = safeConfig.services.slice(0, 40).map((s) => ({
+              name: String((s && s.name) || "").slice(0, 60),
+              price: Math.max(0, Number(s && s.price) || 0),
+              mins: clampInt(s && s.mins, 10, 480, 60),
+              desc: String((s && s.desc) || "").slice(0, 200),
+            })).filter((s) => s.name);
+          }
           const brand = (cfg.brand && typeof cfg.brand === "object") ? cfg.brand : {};
           const DAY = 24 * 60 * 60 * 1000;
           const rec2 = {
@@ -2584,6 +2787,23 @@ exports.pinkPoodleSpa = onRequest(
             const todayCount = await scope.tix().where("date", "==", todayET()).limit(cap + 1).get();
             if (todayCount.size > cap) return res.status(429).json({ error: "This salon has reached today's booking limit." });
           }
+          // Chosen appointment slot (optional). When present, size it by the
+          // selected services' durations and enforce the salon's capacity so we
+          // never overbook a time slot beyond how many dogs can be groomed at once.
+          const apptDate = isIsoDate(b.requestedDate) ? b.requestedDate : "";
+          const apptTime = isHhmm(b.requestedTime) ? b.requestedTime : "";
+          let apptDurationMins = 0;
+          if (apptDate && apptTime) {
+            const hoursCfg = await loadHoursFor(scope);
+            const svcList = await servicesFor(scope);
+            apptDurationMins = clampInt(b.durationMins, 10, 480, 0) || durationForServices(svcList, services) || 60;
+            const startMin = hhmmToMin(apptTime);
+            const booked = await bookedIntervalsFor(scope, apptDate);
+            const overlaps = booked.filter(([s, e]) => startMin < e && (startMin + apptDurationMins) > s).length;
+            if (overlaps >= hoursCfg.capacity) {
+              return res.status(409).json({ error: "That time just filled up — please pick another slot." });
+            }
+          }
           const rec = {
             code: genCode(),
             step: 0,
@@ -2601,8 +2821,9 @@ exports.pinkPoodleSpa = onRequest(
             vaxIntake: cleanVaxIntake(b.vax),
             // If the customer picked an exact date, seed the structured
             // appointment fields so reminders/confirmations can fire.
-            apptDate: isIsoDate(b.requestedDate) ? b.requestedDate : "",
-            apptTime: isHhmm(b.requestedTime) ? b.requestedTime : "",
+            apptDate,
+            apptTime,
+            apptDurationMins,
             confirmed: false,
             est: Math.max(0, Number(b.est) || 0),
             createdAt: now(),
