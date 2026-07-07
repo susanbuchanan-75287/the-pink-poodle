@@ -55,6 +55,7 @@ function normalize(cfg) {
     services: Array.isArray(cfg.services) ? cfg.services : [],
     reviews: Array.isArray(cfg.reviews) ? cfg.reviews : [],
     bookingEndpoint: cfg.bookingEndpoint || "",
+    hosted: !!cfg.hosted,
     brand: {
       primary: hexColor(brand.primary, "#d6337f"),
       accent: hexColor(brand.accent, "#e9a23b"),
@@ -202,10 +203,15 @@ function pageBook(t) {
   // The form POSTs JSON to bookingEndpoint when configured; otherwise it
   // composes an SMS (mobile) / mailto so the site is always actionable.
   const options = t.services.map((s) => `<option value="${esc(s.name)}">${esc(s.name)} — ${esc(money(s.price))}</option>`).join("");
+  const hostedCta = t.hosted
+    ? `<p><a class="btn btn--primary" href="https://thepinkpoodle.dog/book.html?t=${esc(t.slug)}">Book &amp; track online →</a></p>
+  <p class="muted">Book instantly and get check-in &amp; pickup alerts. Or use the form below.</p>`
+    : "";
   return head(t, "Book", `Request a grooming appointment at ${t.business}.`) + nav(t, "book") + `
 <section class="page">
   <h1>Book an appointment</h1>
   <p class="lead">Tell us about your pup and your ideal timing — ${esc(t.owner || t.business)} will confirm.</p>
+  ${hostedCta}
   <form id="bookForm" class="form" novalidate>
     <label>Your name<input name="ownerName" required /></label>
     <label>Mobile number<input name="phone" type="tel" required placeholder="${esc(t.phone)}" /></label>

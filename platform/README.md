@@ -72,19 +72,38 @@ email-validated). It stores interest only — **no payment is processed** — so
 Susan can follow up manually and keep onboarding a human-in-the-loop step.
 
 
+## What's now built (multi-tenant trial provisioning)
+
+The site-generation half is joined by a live, **tenant-scoped operational
+backend** and instant self-serve provisioning:
+
+- **Instant trial salons** — the wizard's "🐩 Create my salon now" button POSTs
+  `spaProvisionTenant` to `pinkPoodleSpa`, which mints an isolated **trial**
+  tenant (`pp_tenants/{id}/spa_tickets|spa_clients|spa_staff|config/*`), a
+  4-digit owner PIN, a 30-day expiry, and a daily ticket cap. Returns live
+  board + book URLs and emails Susan.
+- **Hosted per-tenant pages** on thepinkpoodle.dog: `board.html?t=<id>` (staff
+  console — PIN login, live board, step chips, owner check-in/pickup email +
+  push notifications) and `book.html?t=<id>` (public booking + tracking + FCM
+  push opt-in). Hosted centrally so the shared-project CORS + FCM config work.
+- **Hard data isolation** — tenant requests carry `tenantId`; a strict
+  `TENANT_ACTIONS` allowlist blocks flagship-only features (e.g. checkout) with
+  a 400. Flagship (no `tenantId`) is byte-for-byte unchanged. Verified by a
+  14/14 multi-tenant fire test.
+
 ## What this MVP is NOT (yet)
 
-This proves the **site-generation** half of the product. The board brief covers
-the rest of what a real launch needs — and none of it is built here:
+The board brief covers the rest of what a full launch needs — still deferred:
 
-- Tenant **signup** is lead-capture only (wizard → `pp_platform_leads`);
-  billing for the **$399 setup + $29/mo** (Model B) is handled manually /
-  out-of-band for now — the platform intentionally never processes groomer
-  customer payments.
-- A shared, **tenant-scoped backend** (bookings, inventory, etc. keyed by
-  `tenantId`) with hard data isolation between salons.
-- Automated **provisioning** (create tenant → generate site → deploy → attach
-  domain) and per-tenant custom domains/SSL.
+- **Billing** for the **$399 setup + $29/mo** (Model B) is handled manually /
+  out-of-band — the platform intentionally never processes groomer customer
+  payments.
+- **Email verification / App Check / CAPTCHA** gating before a trial activates
+  (currently guarded by honeypot + rate limit + email-format check only).
+- **Trial-expiry cleanup** job and an admin **promote-to-paid / suspend**
+  workflow in the Salon Console.
+- Automated **custom-domain** attach/SSL per tenant — phase 1 is assist /
+  affiliate (help the groomer buy/point a domain), not reselling.
 - Per-state **money-transmitter / sales-tax** handling and **TCPA/10DLC** SMS
   registration per tenant (see the scaling & financial board briefs).
 

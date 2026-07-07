@@ -140,6 +140,18 @@
       </label>
       <label id="endpointWrap" style="display:none">Booking endpoint URL<input id="bookingEndpoint" placeholder="https://…" /><span class="hint">Requests POST here as JSON. Leave the method on "Text me" if unsure.</span></label>
     </div>
+
+    <div class="panel">
+      <h2>🌐 Your domain</h2>
+      <label>Do you have a website domain?
+        <select id="domainMode">
+          <option value="have">Yes — I already own one</option>
+          <option value="need">No — help me get one</option>
+        </select>
+      </label>
+      <label id="domainHaveWrap">Your domain<input id="domainName" placeholder="yourshop.com" /><span class="hint">We'll show you the DNS setup — you keep full ownership.</span></label>
+      <p class="note" id="domainNeedNote" style="display:none">No problem! When you create your salon we'll help you register one (a small add-on to your setup). You'll own it outright — we never hold your domain hostage.</p>
+    </div>
   </div>
 
   <!-- ============ RIGHT: live preview + actions ============ -->
@@ -161,11 +173,12 @@
         <div id="frameHolder"><iframe class="frame" id="frame" title="Site preview" sandbox="allow-scripts"></iframe></div>
         <p class="err" id="previewErr"></p>
         <div class="actions">
-          <button class="btn btn--primary" id="publishBtn" type="button">🚀 Send to us to publish</button>
-          <button class="btn btn--ghost" id="dlZip" type="button">⬇ Download my website (.zip)</button>
+          <button class="btn btn--primary" id="goLiveBtn" type="button">🐩 Create my salon now</button>
+          <button class="btn btn--ghost" id="publishBtn" type="button">🚀 Send to us to publish</button>
+          <button class="btn btn--ghost btn--sm" id="dlZip" type="button">⬇ Download my website (.zip)</button>
           <button class="btn btn--ghost btn--sm" id="dlJson" type="button">⬇ Setup file (.json)</button>
         </div>
-        <p class="note">Prefer to do it yourself? The <strong>.zip</strong> is a complete, ownable website you can host anywhere. The <strong>.json</strong> is the setup file we use to publish for you.</p>
+        <p class="note"><strong>Create my salon now</strong> instantly stands up your live booking page + staff board (free trial). Or <strong>Send to us</strong> and we'll set it up for you. The <strong>.zip</strong> is a complete, ownable website you can host anywhere.</p>
       </div>
     </div>
   </div>
@@ -184,6 +197,26 @@
     <button class="btn btn--ghost" id="pubCancel" type="button">Cancel</button>
   </div>
   <p class="note" id="pubFallback" style="display:none"></p>
+</div></dialog>
+
+<dialog id="goDlg"><div class="modal-in">
+  <h3>🐩 Create your salon</h3>
+  <p style="font-size:.9rem">This instantly stands up your live booking page and staff board (free trial). <strong>No payment now.</strong></p>
+  <label>Your name<input id="goName" /></label>
+  <label>Email *<input id="goEmail" type="email" /></label>
+  <label>Best phone<input id="goPhone" /></label>
+  <p class="err" id="goErr"></p>
+  <div class="actions">
+    <button class="btn btn--primary" id="goSend" type="button">Create my salon</button>
+    <button class="btn btn--ghost" id="goCancel" type="button">Cancel</button>
+  </div>
+  <div id="goResult" style="display:none;margin-top:.8rem">
+    <p class="ok" style="font-weight:700">🎉 Your salon is live!</p>
+    <p style="font-size:.9rem">Your owner PIN (keep it safe): <strong id="goPin" style="font-size:1.2rem"></strong></p>
+    <p style="font-size:.9rem">📋 Staff board: <a id="goBoard" href="#" target="_blank"></a></p>
+    <p style="font-size:.9rem">🐾 Booking page (share with clients): <a id="goBook" href="#" target="_blank"></a></p>
+    <p class="note" id="goDomainNote"></p>
+  </div>
 </div></dialog>
 
 <footer>Pink Poodle grooming platform · you own your site, your domain, and your bookings · this wizard collects no payment.</footer>
@@ -237,6 +270,8 @@
       services: services,
       reviews: reviews,
       bookingEndpoint: $("bookMode").value === "endpoint" ? $("bookingEndpoint").value.trim() : "",
+      domain: $("domainMode").value === "have" ? $("domainName").value.trim() : "",
+      needsDomain: $("domainMode").value === "need",
       brand: {
         primary: $("c_primary").value, accent: $("c_accent").value,
         ink: $("c_ink").value, cream: $("c_cream").value,
@@ -349,6 +384,11 @@
   $("bookMode").addEventListener("change", function () {
     $("endpointWrap").style.display = this.value === "endpoint" ? "grid" : "none";
   });
+  $("domainMode").addEventListener("change", function () {
+    var have = this.value === "have";
+    $("domainHaveWrap").style.display = have ? "grid" : "none";
+    $("domainNeedNote").style.display = have ? "none" : "block";
+  });
   $("addSvc").onclick = function () { $("services").appendChild(svcRow()); };
   $("addRev").onclick = function () { $("reviews").appendChild(revRow()); };
   document.querySelectorAll("#tabs .tab").forEach(function (tab) {
@@ -409,7 +449,49 @@
       });
   };
 
-  /* ---- seed with a friendly example so the preview isn't empty ---- */
+  /* ---- instant self-serve: create a live (trial) salon now ---- */
+  var LEAD_ENDPOINT_FN = LEAD_ENDPOINT;
+  $("goLiveBtn").onclick = function () {
+    render();
+    if (!window._ppCfg || !window._ppFiles) { $("previewErr").textContent = "Add a business name and phone first."; return; }
+    $("goName").value = window._ppCfg.owner || "";
+    $("goEmail").value = window._ppCfg.email || "";
+    $("goPhone").value = window._ppCfg.phone || "";
+    $("goErr").textContent = ""; $("goResult").style.display = "none";
+    $("goSend").style.display = ""; $("goCancel").textContent = "Cancel";
+    $("goDlg").showModal();
+  };
+  $("goCancel").onclick = function () { $("goDlg").close(); };
+  $("goSend").onclick = function () {
+    var email = $("goEmail").value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { $("goErr").textContent = "Please enter a valid email."; return; }
+    var cfg = window._ppCfg || {};
+    var payload = {
+      action: "spaProvisionTenant",
+      plan: cfg.needsDomain ? "trial+domain" : "trial",
+      contact: { name: $("goName").value.trim(), email: email, phone: $("goPhone").value.trim(), domain: cfg.domain || "" },
+      config: cfg,
+      company: ""
+    };
+    $("goSend").disabled = true; $("goErr").textContent = "Creating your salon…";
+    fetch(LEAD_ENDPOINT_FN, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ("HTTP " + r.status)); return j; }); })
+      .then(function (j) {
+        $("goSend").disabled = false; $("goErr").textContent = "";
+        $("goSend").style.display = "none"; $("goCancel").textContent = "Done";
+        $("goPin").textContent = j.pin || "";
+        var board = $("goBoard"); board.href = j.boardUrl; board.textContent = j.boardUrl;
+        var book = $("goBook"); book.href = j.bookUrl; book.textContent = j.bookUrl;
+        $("goDomainNote").textContent = cfg.needsDomain
+          ? "You asked for help getting a domain — we'll email you options to register one you'll own outright."
+          : (cfg.domain ? ("Point " + cfg.domain + "'s DNS to your site and we'll help you connect it.") : "");
+        $("goResult").style.display = "block";
+      })
+      .catch(function (e) {
+        $("goSend").disabled = false; $("goErr").textContent = e.message || "Couldn't create your salon just now. Please try again or email groomerbrit@yahoo.com.";
+      });
+  };
+
   $("business").value = "Happy Tails Grooming";
   $("slug").value = "happy-tails";
   $("owner").value = "Jamie Rivera";

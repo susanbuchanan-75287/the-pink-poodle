@@ -1662,12 +1662,126 @@ function requireRole(actor, min, res) {
   return false;
 }
 
+/* ---- Multi-tenant scoping (platform: "every groomer gets their own salon") --
+ * The single-salon flagship (thepinkpoodle.dog) has NO tenantId and keeps using
+ * the top-level pp_spa_* collections + pp_config + OWNER_EMAIL exactly as before
+ * — its behavior is byte-for-byte unchanged. A provisioned tenant carries a
+ * tenantId and is fully isolated under pp_tenants/{id}/... subcollections, with
+ * its own owner PIN, staff, config, owner email, and branding. Every spa request
+ * resolves ONE scope object up front; handlers only ever touch scope.* refs, so
+ * a tenant request can never read or write flagship data.
+ * ------------------------------------------------------------------------- */
+const TENANTS = "pp_tenants";
+const RESERVED_SLUGS = ["admin", "api", "www", "app", "spa", "staff", "board", "book", "platform", "pinkpoodle", "thepinkpoodle", "support", "help", "test", "owner", "billing", "pp"];
+
+/** Normalize a tenant id/slug to safe kebab-case (or "" for the flagship). */
+function normTenantId(v) {
+  return String(v || "").toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+
+async function loadTenant(id) {
+  try {
+    const snap = await db.collection(TENANTS).doc(id).get();
+    if (snap.exists) return Object.assign({ id: snap.id }, snap.data());
+  } catch (e) {
+    console.error("loadTenant failed", e && e.message);
+  }
+  return null;
+}
+
+/** The flagship (single-salon) scope — unchanged top-level data + branding. */
+function flagshipScope() {
+  return {
+    id: "",
+    tenant: null,
+    tix: () => db.collection(SPA_TICKETS),
+    clients: () => db.collection(SPA_CLIENTS),
+    staff: () => db.collection(STAFF),
+    configDoc: (name) => db.collection("pp_config").doc(name),
+    ownerEmail: OWNER_EMAIL,
+    brand: { name: "The Pink Poodle", emoji: "🐩", site: "https://thepinkpoodle.dog", phone: "(304) 921-2748" },
+    pinValue: spaPinValue,
+    resolveActor: (pin) => resolveSpaActor(pin),
+  };
+}
+
+/** A provisioned tenant salon scope — isolated under pp_tenants/{id}/... */
+function tenantScope(tenant) {
+  const base = db.collection(TENANTS).doc(tenant.id);
+  const brand = tenant.brand || {};
+  const owner = tenant.owner || {};
+  const site = tenant.domain ? ("https://" + tenant.domain) : `https://thepinkpoodle.dog/book.html?t=${tenant.id}`;
+  return {
+    id: tenant.id,
+    tenant,
+    tix: () => base.collection("spa_tickets"),
+    clients: () => base.collection("spa_clients"),
+    staff: () => base.collection("spa_staff"),
+    configDoc: (name) => base.collection("config").doc(name),
+    ownerEmail: String(owner.email || "").trim(),
+    brand: {
+      name: tenant.business || brand.name || "Your Salon",
+      emoji: brand.emoji || "🐾",
+      site,
+      phone: tenant.phone || owner.phone || "",
+    },
+    pinValue: async () => String(tenant.pin || ""),
+    resolveActor: (pin) => resolveTenantActor(tenant, pin),
+  };
+}
+
+/** Resolve a PIN within a tenant: shared owner PIN, or a per-stylist hashed PIN. */
+async function resolveTenantActor(tenant, pin) {
+  const p = String(pin || "").trim();
+  if (!p) return null;
+  if (tenant.pin && timingSafeEqualStr(p, String(tenant.pin))) {
+    return { kind: "shared", role: "owner", name: (tenant.owner && tenant.owner.name) || "Owner", id: "" };
+  }
+  try {
+    const crypto = require("crypto");
+    const snap = await db.collection(TENANTS).doc(tenant.id).collection("spa_staff").get();
+    for (const d of snap.docs) {
+      const s = d.data() || {};
+      if (s.active === false || !s.pinHash || !s.pinSalt) continue;
+      const cand = Buffer.from(hashPass(p, s.pinSalt).hash, "hex");
+      const stored = Buffer.from(s.pinHash, "hex");
+      if (cand.length === stored.length && crypto.timingSafeEqual(cand, stored)) {
+        return { kind: "staff", role: normRole(s.accessRole), name: s.name || "Stylist", id: d.id };
+      }
+    }
+  } catch (e) {
+    console.error("resolveTenantActor failed", e && e.message);
+  }
+  return null;
+}
+
+/** Resolve the request scope: flagship when no tenantId, else the tenant (or
+ *  null if the tenant is unknown/suspended so the caller can 404). */
+async function resolveTenantScope(tenantId) {
+  if (!tenantId) return flagshipScope();
+  const tenant = await loadTenant(tenantId);
+  if (!tenant || tenant.status === "suspended") return null;
+  return tenantScope(tenant);
+}
+
 async function loadFees() {
   try {
     const snap = await db.collection("pp_config").doc("spaFees").get();
     if (snap.exists && Array.isArray(snap.data().fees)) return snap.data().fees;
   } catch (e) {
     console.error("loadFees failed", e && e.message);
+  }
+  return DEFAULT_FEES;
+}
+
+/** Fees for a given scope (flagship pp_config or a tenant's config subdoc). */
+async function loadFeesFor(scope) {
+  try {
+    const snap = await scope.configDoc("spaFees").get();
+    if (snap.exists && Array.isArray(snap.data().fees)) return snap.data().fees;
+  } catch (e) {
+    console.error("loadFeesFor failed", e && e.message);
   }
   return DEFAULT_FEES;
 }
@@ -1874,15 +1988,16 @@ function clientOut(doc) {
  * name for them before — so the staff CRM auto-populates from every booking
  * without the customer needing an account.
  */
-async function upsertClientFromBooking(rec) {
+async function upsertClientFromBooking(rec, scope) {
+  const col = (scope || flagshipScope()).clients();
   const owner = rec.owner || {};
   const phone = owner.phone || "";
   if (!phone) return ""; // no reliable key — skip (still lives on the ticket)
   try {
-    const snap = await db.collection(SPA_CLIENTS).where("phone", "==", phone).limit(1).get();
+    const snap = await col.where("phone", "==", phone).limit(1).get();
     const petName = (rec.pet && rec.pet.name) || "";
     if (snap.empty) {
-      const ref = await db.collection(SPA_CLIENTS).add({
+      const ref = await col.add({
         name: owner.name || "",
         phone,
         phones: [{ type: "Mobile", number: phone }],
@@ -2265,12 +2380,27 @@ exports.pinkPoodleSpa = onRequest(
     const b = req.body || {};
     const action = b.action;
     const ip = clientIp(req);
-    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaTrackPush", "spaCancelByCode", "spaConfirmByCode", "spaRescheduleByCode", "spaWaitlistJoin", "spaVaxUpload", "spaPlatformLead"];
+    const PUBLIC = ["spaMenu", "spaTenantInfo", "spaBook", "spaTrack", "spaTrackPush", "spaCancelByCode", "spaConfirmByCode", "spaRescheduleByCode", "spaWaitlistJoin", "spaVaxUpload", "spaPlatformLead", "spaProvisionTenant"];
+    // Actions a provisioned tenant salon may call. Strict allowlist: anything
+    // not here is flagship-only, so a tenant request can't reach unscoped code.
+    const TENANT_ACTIONS = ["spaMenu", "spaTenantInfo", "spaBook", "spaTrack", "spaTrackPush", "spaCancelByCode", "spaConfirmByCode", "spaLogin", "spaBoard", "spaAdvance", "spaNotifyOwner", "spaStaffList", "spaStaffPin"];
+    const tenantId = normTenantId(b.tenantId);
     let actor = null;
+    let scope = flagshipScope();
 
     try {
+      // spaProvisionTenant is the platform entry that CREATES a tenant, so it
+      // runs at flagship/platform level (no tenant scope yet).
+      if (tenantId && action !== "spaProvisionTenant") {
+        scope = await resolveTenantScope(tenantId);
+        if (!scope) return res.status(404).json({ error: "That salon isn't set up yet." });
+        if (TENANT_ACTIONS.indexOf(action) < 0) {
+          return res.status(400).json({ error: "That feature isn't available for your salon yet." });
+        }
+      }
+
       if (PUBLIC.indexOf(action) < 0) {
-        actor = await resolveSpaActor(b.pin);
+        actor = await scope.resolveActor(b.pin);
         if (!actor) {
           const ok = await checkRateLimit("spaauth", ip, { max: 10, windowMs: 10 * 60 * 1000 });
           if (!ok) return res.status(429).json({ error: "Too many attempts. Try again later." });
@@ -2281,7 +2411,25 @@ exports.pinkPoodleSpa = onRequest(
       switch (action) {
         /* ---------------- public / customer ---------------- */
         case "spaMenu":
-          return res.json({ ok: true, fees: await loadFees() });
+          return res.json({ ok: true, fees: await loadFeesFor(scope) });
+
+        case "spaTenantInfo": {
+          // Public: lets a tenant's hosted booking page render the salon name,
+          // branding, and service menu. Tenant-scoped only.
+          if (!scope.id) return res.status(400).json({ error: "Unknown salon." });
+          const tcfg = scope.tenant.config || {};
+          const services = (Array.isArray(tcfg.services) ? tcfg.services : [])
+            .map((s) => ({ name: String(s.name || "").slice(0, 60), price: Math.max(0, Number(s.price) || 0), desc: String(s.desc || "").slice(0, 200) }))
+            .filter((s) => s.name).slice(0, 40);
+          return res.json({
+            ok: true,
+            business: scope.tenant.business || "Your Salon",
+            emoji: (scope.tenant.brand && scope.tenant.brand.emoji) || "🐾",
+            brand: scope.tenant.brand || {},
+            phone: scope.tenant.phone || (scope.tenant.owner && scope.tenant.owner.phone) || "",
+            services,
+          });
+        }
 
         case "spaPlatformLead": {
           // Public lead capture for the groomer website setup wizard (Model B:
@@ -2321,6 +2469,98 @@ exports.pinkPoodleSpa = onRequest(
           return res.json({ ok: true, id: ref.id });
         }
 
+        case "spaProvisionTenant": {
+          // Instant self-serve: turn a wizard config into a LIVE (trial) salon
+          // with its own board, owner PIN, and owner notifications — isolated
+          // under pp_tenants/{id}. Guardrailed: honeypot + rate limit + email +
+          // reserved/collision-checked slug. The platform never touches groomer
+          // money; this only stands up their operational workspace. Susan is
+          // emailed so she can follow up + promote the trial to a paid plan.
+          if (b.company) return res.json({ ok: true }); // honeypot
+          const okp = await checkRateLimit("spaprovision", ip, { max: 4, windowMs: 60 * 60 * 1000 });
+          if (!okp) return res.status(429).json({ error: "Too many salons created from here just now. Please email groomerbrit@yahoo.com." });
+          const cfg = (b.config && typeof b.config === "object") ? b.config : {};
+          const contact = b.contact || {};
+          const business = String(cfg.business || contact.business || "").trim().slice(0, 80);
+          const email = String(contact.email || cfg.email || "").trim().slice(0, 120);
+          const phone = String(contact.phone || cfg.phone || "").trim().slice(0, 40);
+          const ownerName = String(contact.name || cfg.owner || "").trim().slice(0, 80);
+          const domain = String(contact.domain || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").slice(0, 120);
+          if (!business) return res.status(400).json({ error: "Please add your business name." });
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Please provide a valid email." });
+          let id = normTenantId(cfg.slug || business);
+          if (!id || id.length < 3) return res.status(400).json({ error: "Please choose a salon name of at least 3 letters." });
+          if (RESERVED_SLUGS.indexOf(id) >= 0) return res.status(400).json({ error: "That name is reserved — please pick another." });
+          // Slug reservation with email-idempotency: the same owner may re-run
+          // (resume) their salon; a different owner gets the next free suffix.
+          const existing = await loadTenant(id);
+          if (existing && String((existing.owner && existing.owner.email) || "").toLowerCase() !== email.toLowerCase()) {
+            let n = 2, free = null;
+            while (n < 50) {
+              const cand = (id + "-" + n).slice(0, 40);
+              if (!(await loadTenant(cand))) { free = cand; break; }
+              n++;
+            }
+            if (!free) return res.status(400).json({ error: "That name is taken — please pick another." });
+            id = free;
+          }
+          // Preserve an existing owner PIN on resume; otherwise mint a 4-digit one.
+          const pin = (existing && existing.pin) ? String(existing.pin) : String(Math.floor(1000 + Math.random() * 9000));
+          let safeConfig = {};
+          try { const raw = JSON.stringify(cfg); if (raw.length <= 30000) safeConfig = JSON.parse(raw); } catch (_e) { safeConfig = {}; }
+          const brand = (cfg.brand && typeof cfg.brand === "object") ? cfg.brand : {};
+          const DAY = 24 * 60 * 60 * 1000;
+          const rec2 = {
+            slug: id,
+            business,
+            owner: { name: ownerName, email, phone },
+            domain,
+            plan: String(b.plan || "trial").slice(0, 60),
+            status: (existing && existing.status === "active") ? "active" : "trial",
+            pin,
+            brand: { emoji: String(cfg.emoji || "🐾").slice(0, 8), primary: String(brand.primary || "").slice(0, 9), accent: String(brand.accent || "").slice(0, 9) },
+            phone,
+            config: safeConfig,
+            dailyTicketCap: 40,
+            updatedAt: now(),
+          };
+          if (!existing) { rec2.createdAt = now(); rec2.trialExpiresAt = Date.now() + 30 * DAY; }
+          await db.collection(TENANTS).doc(id).set(rec2, { merge: true });
+          // Mirror into leads so Susan can follow up + promote to paid.
+          try {
+            await db.collection(SPA_PLATFORM_LEADS).add({
+              contact: { name: ownerName, email, phone, domain },
+              plan: rec2.plan, config: safeConfig, tenantId: id,
+              status: existing ? "provisioned-resumed" : "provisioned-trial",
+              ip, createdAt: now(),
+            });
+          } catch (_e) { /* non-fatal */ }
+          const boardUrl = `https://thepinkpoodle.dog/board.html?t=${encodeURIComponent(id)}`;
+          const bookUrl = `https://thepinkpoodle.dog/book.html?t=${encodeURIComponent(id)}`;
+          // Notify the platform owner (Susan) — fire-and-forget.
+          try {
+            await sendEmail({
+              to: BACKUP_ADMIN_EMAIL,
+              subject: `🐩 New salon provisioned: ${business}`,
+              html: `<div style="font-family:Arial,sans-serif;max-width:560px;color:#3a2733">
+                <h2 style="color:#b83372">New ${existing ? "resumed" : "trial"} salon</h2>
+                <ul>
+                  <li><b>Salon:</b> ${esc(business)}</li>
+                  <li><b>Owner:</b> ${esc(ownerName)} — ${esc(email)}${phone ? " · " + esc(phone) : ""}</li>
+                  <li><b>Tenant ID:</b> ${esc(id)}</li>
+                  <li><b>Domain:</b> ${esc(domain || "(needs one — upsell registration)")}</li>
+                  <li><b>Plan:</b> ${esc(rec2.plan)}</li>
+                </ul>
+                <p>Staff board: <a href="${boardUrl}">${boardUrl}</a><br>Public booking: <a href="${bookUrl}">${bookUrl}</a></p>
+                <p style="color:#8a7580">Promote to a paid plan once setup is confirmed.</p>
+              </div>`,
+              text: `New ${existing ? "resumed" : "trial"} salon ${business} (${id}). Owner ${ownerName} ${email} ${phone}. Domain: ${domain || "(needs one)"}. Board: ${boardUrl}`,
+              replyTo: email,
+            });
+          } catch (_e) { /* non-fatal */ }
+          return res.json({ ok: true, tenantId: id, pin, boardUrl, bookUrl, status: rec2.status });
+        }
+
 
         case "spaLogin":
           // Confirms the PIN and returns who it belongs to + their role, so the
@@ -2338,6 +2578,12 @@ exports.pinkPoodleSpa = onRequest(
           const services = (Array.isArray(b.services) ? b.services : []).map((s) => String(s).slice(0, 60)).slice(0, 20);
           if (!services.length) return res.status(400).json({ error: "Choose at least one service." });
           const items = (Array.isArray(b.items) ? b.items : []).map((it) => ({ label: String(it.label || "").slice(0, 60), amount: Math.max(0, Number(it.amount) || 0) })).slice(0, 30);
+          // Trial-tenant abuse guard: cap bookings per day.
+          if (scope.id) {
+            const cap = Number(scope.tenant.dailyTicketCap) || 40;
+            const todayCount = await scope.tix().where("date", "==", todayET()).limit(cap + 1).get();
+            if (todayCount.size > cap) return res.status(429).json({ error: "This salon has reached today's booking limit." });
+          }
           const rec = {
             code: genCode(),
             step: 0,
@@ -2361,8 +2607,8 @@ exports.pinkPoodleSpa = onRequest(
             est: Math.max(0, Number(b.est) || 0),
             createdAt: now(),
           };
-          const r = await db.collection(SPA_TICKETS).add(rec);
-          const clientId = await upsertClientFromBooking(rec);
+          const r = await scope.tix().add(rec);
+          const clientId = await upsertClientFromBooking(rec, scope);
           if (clientId) await r.set({ clientId }, { merge: true });
           return res.json({ ok: true, code: rec.code, id: r.id });
         }
@@ -2370,7 +2616,7 @@ exports.pinkPoodleSpa = onRequest(
         case "spaTrack": {
           const codeUp = String(b.code || "").trim().toUpperCase().slice(0, 10);
           if (!codeUp) return res.status(400).json({ error: "Enter your booking code." });
-          const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
+          const snap = await scope.tix().where("code", "==", codeUp).limit(1).get();
           if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
           const doc = snap.docs[0];
           // Loyalty: lifetime visits + dollars spent for this pup's owner.
@@ -2382,8 +2628,8 @@ exports.pinkPoodleSpa = onRequest(
           const loyalty = { visits: 0, spent: 0 };
           try {
             let hist = null;
-            if (phone) hist = await db.collection(SPA_TICKETS).where("owner.phone", "==", phone).limit(500).get();
-            else if (email) hist = await db.collection(SPA_TICKETS).where("owner.email", "==", owner.email).limit(500).get();
+            if (phone) hist = await scope.tix().where("owner.phone", "==", phone).limit(500).get();
+            else if (email) hist = await scope.tix().where("owner.email", "==", owner.email).limit(500).get();
             if (hist) {
               hist.docs.forEach((d) => {
                 const x = d.data();
@@ -2411,7 +2657,7 @@ exports.pinkPoodleSpa = onRequest(
           const tok = String(b.token || "").trim();
           if (!codeUp) return res.status(400).json({ error: "Enter your booking code." });
           if (tok.length < 20) return res.status(400).json({ error: "Invalid notification token." });
-          const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
+          const snap = await scope.tix().where("code", "==", codeUp).limit(1).get();
           if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
           const ref = snap.docs[0].ref;
           const FieldValue = admin.firestore.FieldValue;
@@ -2427,7 +2673,7 @@ exports.pinkPoodleSpa = onRequest(
           const ok = await checkRateLimit("spacancel", ip, { max: 10, windowMs: 10 * 60 * 1000 });
           if (!ok) return res.status(429).json({ error: "Too many requests." });
           const codeUp = String(b.code || "").trim().toUpperCase().slice(0, 10);
-          const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
+          const snap = await scope.tix().where("code", "==", codeUp).limit(1).get();
           if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
           const doc = snap.docs[0];
           if ((doc.data().step || 0) >= 2) return res.status(400).json({ error: "This spa day is already underway — please call the salon." });
@@ -2439,7 +2685,7 @@ exports.pinkPoodleSpa = onRequest(
           const ok = await checkRateLimit("spaconfirm", ip, { max: 20, windowMs: 10 * 60 * 1000 });
           if (!ok) return res.status(429).json({ error: "Too many requests." });
           const codeUp = String(b.code || "").trim().toUpperCase().slice(0, 10);
-          const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
+          const snap = await scope.tix().where("code", "==", codeUp).limit(1).get();
           if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
           const doc = snap.docs[0];
           const t = doc.data() || {};
@@ -2577,7 +2823,7 @@ exports.pinkPoodleSpa = onRequest(
 
         /* ---------------- staff (PIN required) ---------------- */
         case "spaBoard": {
-          const snap = await db.collection(SPA_TICKETS).orderBy("createdAt", "desc").limit(200).get();
+          const snap = await scope.tix().orderBy("createdAt", "desc").limit(200).get();
           const today = todayET();
           const tickets = snap.docs.map(spaTicketFull).filter((t) => !t.voided && (t.date === today || (t.step < 6 && !t.cancelled)));
           // Join in each client's safety info (emergency contact, authorized-pickup,
@@ -2587,7 +2833,7 @@ exports.pinkPoodleSpa = onRequest(
           const cmap = {};
           await Promise.all(cids.map(async (cid) => {
             try {
-              const cdoc = await db.collection(SPA_CLIENTS).doc(cid).get();
+              const cdoc = await scope.clients().doc(cid).get();
               if (cdoc.exists) cmap[cid] = clientOut(cdoc);
             } catch (_) {}
           }));
@@ -2612,7 +2858,7 @@ exports.pinkPoodleSpa = onRequest(
         case "spaAdvance": {
           if (!b.id) return res.status(400).json({ error: "Missing id." });
           const step = Math.max(0, Math.min(6, Number(b.step)));
-          await db.collection(SPA_TICKETS).doc(b.id).set({ step, cancelled: false }, { merge: true });
+          await scope.tix().doc(b.id).set({ step, cancelled: false }, { merge: true });
           return res.json({ ok: true });
         }
 
@@ -2623,13 +2869,17 @@ exports.pinkPoodleSpa = onRequest(
           // "sms" is intentionally dormant until Twilio A2P is live.
           const id = String(b.id || "");
           if (!id) return res.status(400).json({ error: "Missing id." });
-          const doc = await db.collection(SPA_TICKETS).doc(id).get();
+          const doc = await scope.tix().doc(id).get();
           if (!doc.exists) return res.status(404).json({ error: "Ticket not found." });
           const t = doc.data() || {};
           const owner = t.owner || {};
           const petName = (t.pet && t.pet.name) || "your pup";
           const firstName = String(owner.name || "").trim().split(/\s+/)[0] || "there";
           const code = t.code || "";
+          const salonName = scope.brand.name;
+          const salonSite = scope.brand.site;
+          const salonPhone = scope.brand.phone;
+          const trackLink = scope.id ? salonSite : "https://thepinkpoodle.dog/spa.html#track";
           const channel = String(b.channel || "email").toLowerCase();
           const kind = String(b.kind || "checkedin").toLowerCase();
           const FieldValue = admin.firestore.FieldValue;
@@ -2650,7 +2900,7 @@ exports.pinkPoodleSpa = onRequest(
             const dead = ["messaging/registration-token-not-registered", "messaging/invalid-registration-token"];
             const title = kind === "checkedin" ? `🛁 ${petName} is checked in!` : `🐩 ${petName} is ready for pickup!`;
             const bodyText = kind === "checkedin"
-              ? `${petName} is safe with us at The Pink Poodle and starting their spa day.`
+              ? `${petName} is safe with us at ${salonName} and starting their spa day.`
               : `${petName} is all pampered and ready to go home! See you soon. 🩷`;
             let sent = 0, failed = 0;
             for (const tok of tokens) {
@@ -2659,8 +2909,8 @@ exports.pinkPoodleSpa = onRequest(
                   token: tok,
                   notification: { title, body: bodyText },
                   webpush: {
-                    fcmOptions: { link: `https://thepinkpoodle.dog/spa.html#track` },
-                    notification: { icon: "https://thepinkpoodle.dog/assets/paris.jpg", tag: "pp-pickup-" + code },
+                    fcmOptions: { link: trackLink },
+                    notification: { tag: "pp-pickup-" + code },
                   },
                 });
                 sent++;
@@ -2678,20 +2928,20 @@ exports.pinkPoodleSpa = onRequest(
           const to = String(owner.email || "").trim();
           if (!to) return res.status(400).json({ error: `No email on file for ${owner.name || "this owner"}. Add one in Clients, or send a push alert.` });
           const ready = kind === "ready";
-          const subject = ready ? `${petName} is ready for pickup! 🐩` : `${petName} is checked in at The Pink Poodle 🛁`;
+          const subject = ready ? `${petName} is ready for pickup! 🐩` : `${petName} is checked in at ${salonName} 🛁`;
           const line = ready
             ? `Great news — ${petName} is all pampered and ready to go home! Come by whenever you're ready. 🩷`
             : `Just letting you know ${petName} arrived safely and is starting their spa day with us. We'll let you know the moment they're ready. 🛁`;
           const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#3a2733">
-            <h2 style="color:#b83372;margin:0 0 .4rem">The Pink Poodle 🐩</h2>
+            <h2 style="color:#b83372;margin:0 0 .4rem">${esc(salonName)} 🐩</h2>
             <p>Hi ${esc(firstName)},</p>
             <p>${esc(line)}</p>
-            <p style="color:#8a7580;font-size:.9rem">Booking ref: <strong>${esc(code)}</strong>${ready ? "" : ` · Track ${esc(petName)}'s spa day at <a href="https://thepinkpoodle.dog/spa.html#track">thepinkpoodle.dog</a>`}</p>
-            <p style="color:#8a7580;font-size:.85rem">The Pink Poodle · (304) 921-2748</p>
+            <p style="color:#8a7580;font-size:.9rem">Booking ref: <strong>${esc(code)}</strong>${ready ? "" : ` · Track ${esc(petName)}'s spa day at <a href="${esc(trackLink)}">${esc(salonName)}</a>`}</p>
+            <p style="color:#8a7580;font-size:.85rem">${esc(salonName)}${salonPhone ? ` · ${esc(salonPhone)}` : ""}</p>
           </div>`;
-          const text = `Hi ${firstName}, ${line} Booking ref: ${code}. — The Pink Poodle, (304) 921-2748`;
+          const text = `Hi ${firstName}, ${line} Booking ref: ${code}. — ${salonName}${salonPhone ? ", " + salonPhone : ""}`;
           try {
-            await sendEmail({ to, subject, html, text, replyTo: OWNER_EMAIL });
+            await sendEmail({ to, subject, html, text, replyTo: scope.ownerEmail || OWNER_EMAIL });
           } catch (e) {
             console.error("spaNotifyOwner email failed", e && e.message);
             return res.status(502).json({ error: "Couldn't send the email right now — please try again." });
@@ -3623,11 +3873,11 @@ exports.pinkPoodleSpa = onRequest(
           // owner PIN — not only from the passphrase-gated Salon Console. The PIN
           // hash never leaves the server (staffOut omits it).
           if (!requireRole(actor, "owner", res)) return;
-          let snap = await db.collection(STAFF).get();
-          if (snap.empty) {
+          let snap = await scope.staff().get();
+          if (snap.empty && !scope.id) {
             const batch = db.batch();
             for (const s of DEFAULT_STAFF) {
-              const ref = db.collection(STAFF).doc();
+              const ref = scope.staff().doc();
               batch.set(ref, {
                 name: s.name, role: s.role, tags: s.tags, phone: s.phone, order: s.order,
                 active: true, squareTeamMemberId: "",
@@ -3638,7 +3888,7 @@ exports.pinkPoodleSpa = onRequest(
               });
             }
             await batch.commit();
-            snap = await db.collection(STAFF).get();
+            snap = await scope.staff().get();
           }
           const staff = snap.docs.map(staffOut).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
           return res.json({ ok: true, staff });
@@ -3651,7 +3901,7 @@ exports.pinkPoodleSpa = onRequest(
           if (!requireRole(actor, "owner", res)) return;
           const staffId = String(b.staffId || "").slice(0, 60);
           if (!staffId) return res.status(400).json({ error: "Pick a stylist." });
-          const ref = db.collection(STAFF).doc(staffId);
+          const ref = scope.staff().doc(staffId);
           const doc = await ref.get();
           if (!doc.exists) return res.status(404).json({ error: "Stylist not found." });
           const role = normRole(b.role);
@@ -3661,10 +3911,10 @@ exports.pinkPoodleSpa = onRequest(
           }
           const np = String(b.newPin || "").trim();
           if (!/^\d{4,8}$/.test(np)) return res.status(400).json({ error: "PIN must be 4–8 digits." });
-          if (timingSafeEqualStr(np, await spaPinValue())) return res.status(400).json({ error: "That's the shared salon PIN — choose a different personal PIN." });
+          if (timingSafeEqualStr(np, await scope.pinValue())) return res.status(400).json({ error: "That's the shared salon PIN — choose a different personal PIN." });
           // Reject collision with another stylist's PIN.
           const crypto = require("crypto");
-          const all = await db.collection(STAFF).get();
+          const all = await scope.staff().get();
           for (const s2 of all.docs) {
             if (s2.id === staffId) continue;
             const sd = s2.data() || {};

@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex" />
+<meta name="theme-color" content="#d6337f" />
+<title>Staff Board · Pink Poodle Platform</title>
+<style>
+  :root { --pink:#d6337f; --ink:#221820; --cream:#fdf6fa; --line:rgba(0,0,0,.08); }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--cream);line-height:1.5}
+  header{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;padding:.9rem 1.1rem;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  .brand{font-weight:800;font-size:1.15rem}
+  .who{font-size:.85rem;color:#6b6b6b}
+  .wrap{max-width:960px;margin:0 auto;padding:1.1rem}
+  .btn{display:inline-block;padding:.55rem 1rem;border-radius:999px;font-weight:700;border:2px solid var(--pink);background:var(--pink);color:#fff;cursor:pointer;font:inherit}
+  .btn.ghost{background:#fff;color:var(--pink)}
+  .btn.sm{padding:.35rem .7rem;font-size:.85rem}
+  .btn:disabled{opacity:.5;cursor:default}
+  input{padding:.7rem;border:1px solid #ccc;border-radius:10px;font:inherit;width:100%}
+  .login{max-width:340px;margin:12vh auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:1.6rem;text-align:center}
+  .login h1{margin:.2rem 0 1rem;font-size:1.4rem}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:1rem;margin:.8rem 0;box-shadow:0 4px 16px rgba(0,0,0,.04)}
+  .card h3{margin:0 0 .2rem;font-size:1.1rem}
+  .meta{color:#6b6b6b;font-size:.9rem;margin:.1rem 0}
+  .steps{display:flex;flex-wrap:wrap;gap:.35rem;margin:.6rem 0}
+  .chip{padding:.3rem .6rem;border-radius:999px;border:1px solid var(--line);background:#faf0f6;font-size:.8rem;cursor:pointer}
+  .chip.on{background:var(--pink);color:#fff;border-color:var(--pink)}
+  .row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-top:.5rem}
+  .note{font-size:.85rem;min-height:1.1em;margin:.3rem 0 0}
+  .ok{color:#1a7a3f}.err{color:#b3261e}
+  .muted{color:#8a7580}.tiny{font-size:.78rem}
+  .empty{text-align:center;color:#8a7580;padding:3rem 1rem}
+  .badge{display:inline-block;font-size:.72rem;padding:.1rem .5rem;border-radius:999px;background:#eee;color:#555;margin-left:.4rem}
+  .badge.on{background:#e7f6ec;color:#1a7a3f}
+</style>
+</head>
+<body>
+<div id="loginView" class="login" style="display:none">
+  <div style="font-size:2rem">🐩</div>
+  <h1 id="loginTitle">Staff sign-in</h1>
+  <p class="muted tiny" id="loginSalon"></p>
+  <input id="pin" type="tel" inputmode="numeric" placeholder="Enter your PIN" autocomplete="off" />
+  <p class="note err" id="loginErr"></p>
+  <button class="btn" id="loginBtn" style="width:100%;margin-top:.6rem">Sign in</button>
+</div>
+
+<div id="appView" style="display:none">
+  <header>
+    <div>
+      <div class="brand" id="hdrName">Staff Board</div>
+      <div class="who" id="hdrWho"></div>
+    </div>
+    <div class="row">
+      <button class="btn ghost sm" id="refreshBtn">Refresh</button>
+      <button class="btn ghost sm" id="signout">Sign out</button>
+    </div>
+  </header>
+  <div class="wrap">
+    <div id="board"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var ENDPOINT = "https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodleSpa";
+  var TENANT = new URLSearchParams(location.search).get("t") || "";
+  var STEPS = ["Requested","Checked in","Bathing","Grooming","Finishing","Ready for pickup","Picked up"];
+  var $ = function (id) { return document.getElementById(id); };
+  var pin = sessionStorage.getItem("pp_board_pin_" + TENANT) || "";
+  var actor = null, salon = "Your Salon", pollTimer = null;
+
+  function api(action, extra) {
+    var body = Object.assign({ action: action, tenantId: TENANT }, extra || {});
+    return fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ("HTTP " + r.status)); return j; }); });
+  }
+  function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+  if (!TENANT) { document.body.innerHTML = '<div class="empty">Missing salon id. Use the link from your welcome email (board.html?t=your-salon).</div>'; return; }
+
+  /* ---- header salon name ---- */
+  api("spaTenantInfo").then(function (j) { salon = j.business || salon; $("hdrName").textContent = salon + " — Board"; $("loginSalon").textContent = salon; }).catch(function(){});
+
+  /* ---- login ---- */
+  function showLogin(msg) {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    $("appView").style.display = "none";
+    $("loginView").style.display = "block";
+    $("loginErr").textContent = msg || "";
+    $("pin").value = ""; $("pin").focus();
+  }
+  function doLogin() {
+    var p = $("pin").value.trim();
+    if (!p) return;
+    $("loginBtn").disabled = true; $("loginErr").textContent = "Checking…";
+    api("spaLogin", { pin: p }).then(function (j) {
+      pin = p; actor = j.actor || {};
+      sessionStorage.setItem("pp_board_pin_" + TENANT, pin);
+      $("loginBtn").disabled = false; $("loginErr").textContent = "";
+      enterApp();
+    }).catch(function (e) {
+      $("loginBtn").disabled = false; $("loginErr").textContent = e.message || "Wrong PIN.";
+    });
+  }
+  $("loginBtn").onclick = doLogin;
+  $("pin").addEventListener("keydown", function (e) { if (e.key === "Enter") doLogin(); });
+  $("signout").onclick = function () { pin = ""; sessionStorage.removeItem("pp_board_pin_" + TENANT); actor = null; showLogin(""); };
+  $("refreshBtn").onclick = function () { loadBoard(); };
+
+  /* ---- app ---- */
+  function enterApp() {
+    $("loginView").style.display = "none";
+    $("appView").style.display = "block";
+    $("hdrWho").textContent = actor && actor.name ? (actor.name + " · " + (actor.role || "")) : "";
+    loadBoard();
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(loadBoard, 20000);
+  }
+
+  function loadBoard() {
+    api("spaBoard", { pin: pin }).then(function (j) {
+      actor = actor || {};
+      render(j.tickets || []);
+    }).catch(function (e) {
+      if (/PIN/i.test(e.message)) showLogin("Session expired — sign in again.");
+    });
+  }
+
+  function render(tickets) {
+    var board = $("board");
+    var live = tickets.filter(function (t) { return !t.voided; });
+    if (!live.length) { board.innerHTML = '<div class="empty">No bookings on the board yet. New requests appear here automatically. 🐾</div>'; return; }
+    board.innerHTML = "";
+    live.forEach(function (t) {
+      var owner = t.owner || {};
+      var card = document.createElement("div");
+      card.className = "card";
+      var stepsHtml = STEPS.map(function (label, i) {
+        return '<span class="chip' + (i === t.step ? " on" : "") + '" data-step="' + i + '">' + esc(label) + '</span>';
+      }).join("");
+      var alerts = t.alertsOn ? '<span class="badge on">🔔 alerts on</span>' : '';
+      card.innerHTML =
+        '<h3>' + esc(t.petName || "(no name)") + (t.cancelled ? ' <span class="badge">cancelled</span>' : '') + alerts + '</h3>' +
+        '<div class="meta">' + esc((t.pet && t.pet.breed) || "") + (t.services && t.services.length ? " · " + esc(t.services.join(", ")) : "") + '</div>' +
+        '<div class="meta">👤 ' + esc(owner.name || "—") +
+          (owner.phone ? ' · <a href="tel:' + esc(owner.phone) + '">' + esc(owner.phone) + '</a>' : '') +
+          (owner.email ? ' · <a href="mailto:' + esc(owner.email) + '">' + esc(owner.email) + '</a>' : '') + '</div>' +
+        (t.petNotes ? '<div class="meta">📝 ' + esc(t.petNotes) + '</div>' : '') +
+        '<div class="steps">' + stepsHtml + '</div>' +
+        '<div class="row">' +
+          '<button class="btn sm" data-notify="checkedin" data-ch="email">📧 Checked-in email</button>' +
+          '<button class="btn sm" data-notify="ready" data-ch="email">📧 Ready email</button>' +
+          '<button class="btn ghost sm" data-notify="ready" data-ch="push">🔔 Ready push</button>' +
+          '<button class="btn ghost sm" data-notify="ready" data-ch="sms" title="Coming soon">💬 SMS</button>' +
+        '</div>' +
+        '<p class="note" data-note></p>';
+      var note = card.querySelector("[data-note]");
+      card.querySelectorAll(".chip").forEach(function (chip) {
+        chip.onclick = function () {
+          var step = Number(chip.getAttribute("data-step"));
+          api("spaAdvance", { pin: pin, id: t.id, step: step }).then(function () { loadBoard(); })
+            .catch(function (e) { note.className = "note err"; note.textContent = e.message; });
+        };
+      });
+      card.querySelectorAll("[data-notify]").forEach(function (btn) {
+        btn.onclick = function () {
+          var kind = btn.getAttribute("data-notify"), ch = btn.getAttribute("data-ch");
+          note.className = "note"; note.textContent = "Sending…"; btn.disabled = true;
+          api("spaNotifyOwner", { pin: pin, id: t.id, channel: ch, kind: kind }).then(function (j) {
+            btn.disabled = false; note.className = "note ok";
+            note.textContent = ch === "push" ? ("Push sent to " + (j.sent || 0) + " device(s).") : "Sent! ✓";
+          }).catch(function (e) {
+            btn.disabled = false; note.className = "note err"; note.textContent = e.message;
+          });
+        };
+      });
+      board.appendChild(card);
+    });
+  }
+
+  /* ---- boot ---- */
+  if (pin) { api("spaLogin", { pin: pin }).then(function (j) { actor = j.actor || {}; enterApp(); }).catch(function () { showLogin(""); }); }
+  else showLogin("");
+})();
+</script>
+</body>
+</html>

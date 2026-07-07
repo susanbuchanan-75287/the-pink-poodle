@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#d6337f" />
+<title>Book &amp; Track</title>
+<style>
+  :root { --pink:#d6337f; --ink:#221820; --cream:#fdf6fa; --line:rgba(0,0,0,.08); }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--cream);line-height:1.5}
+  header{background:linear-gradient(135deg,var(--pink),#e9a23b);color:#fff;padding:1.6rem 1.1rem;text-align:center}
+  header h1{margin:.2rem 0;font-size:1.6rem}
+  .wrap{max-width:560px;margin:0 auto;padding:1.1rem}
+  .tabs{display:flex;gap:.5rem;justify-content:center;margin:.8rem 0}
+  .tab{padding:.5rem 1.1rem;border-radius:999px;border:2px solid var(--pink);background:#fff;color:var(--pink);font-weight:700;cursor:pointer}
+  .tab.on{background:var(--pink);color:#fff}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:1.3rem;box-shadow:0 6px 24px rgba(0,0,0,.05)}
+  label{display:block;font-weight:600;margin:.7rem 0 .25rem}
+  input,textarea,select{width:100%;padding:.7rem;border:1px solid #ccc;border-radius:10px;font:inherit}
+  .svc{display:flex;align-items:center;gap:.5rem;padding:.4rem 0;border-bottom:1px dashed var(--line);font-weight:500}
+  .svc input{width:auto}
+  .svc .price{margin-left:auto;font-weight:700;color:var(--pink)}
+  .btn{display:inline-block;width:100%;padding:.85rem;border-radius:999px;font-weight:700;border:2px solid var(--pink);background:var(--pink);color:#fff;cursor:pointer;font:inherit;margin-top:1rem}
+  .btn.ghost{background:#fff;color:var(--pink)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .note{min-height:1.2em;margin:.6rem 0 0;font-weight:600}
+  .ok{color:#1a7a3f}.err{color:#b3261e}
+  .muted{color:#8a7580}.tiny{font-size:.8rem}.center{text-align:center}
+  .timeline{list-style:none;padding:0;margin:1rem 0}
+  .timeline li{padding:.5rem .7rem;border-left:3px solid var(--line);margin-left:.4rem}
+  .timeline li.on{border-color:var(--pink);font-weight:700;color:var(--pink)}
+  .codebox{font-size:1.6rem;font-weight:800;letter-spacing:.12em;color:var(--pink);text-align:center;margin:.6rem 0}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<header>
+  <div style="font-size:2rem" id="emoji">🐾</div>
+  <h1 id="salonName">Book your pup's spa day</h1>
+  <p class="tiny" id="salonPhone" style="opacity:.9"></p>
+</header>
+
+<div class="wrap">
+  <div class="tabs">
+    <button class="tab on" id="tabBook">Book</button>
+    <button class="tab" id="tabTrack">Track</button>
+  </div>
+
+  <!-- BOOK -->
+  <div id="bookPane" class="card">
+    <div id="bookForm">
+      <label>Your name<input id="ownerName" autocomplete="name" /></label>
+      <label>Mobile number<input id="ownerPhone" type="tel" autocomplete="tel" /></label>
+      <label>Email (for check-in &amp; pickup alerts)<input id="ownerEmail" type="email" autocomplete="email" /></label>
+      <label>Pet's name<input id="petName" /></label>
+      <label>Breed / size<input id="petBreed" placeholder="e.g. Goldendoodle, 45 lbs" /></label>
+      <label>Services</label>
+      <div id="svcList"><p class="muted tiny">Loading services…</p></div>
+      <label>Preferred day/time<input id="preferred" placeholder="e.g. Saturday morning" /></label>
+      <label>Notes<textarea id="notes" rows="2" placeholder="Anything we should know?"></textarea></label>
+      <input id="company" class="hide" tabindex="-1" autocomplete="off" aria-hidden="true" />
+      <button class="btn" id="bookBtn">Request appointment</button>
+      <p class="note" id="bookNote"></p>
+    </div>
+    <div id="bookDone" class="hide center">
+      <p>🎉 Request received! We'll confirm shortly.</p>
+      <p class="muted tiny">Your tracking code</p>
+      <div class="codebox" id="doneCode"></div>
+      <button class="btn ghost" id="trackThis">Track this booking</button>
+    </div>
+  </div>
+
+  <!-- TRACK -->
+  <div id="trackPane" class="card hide">
+    <label>Booking code<input id="trackCode" placeholder="e.g. AB1234" style="text-transform:uppercase" /></label>
+    <button class="btn" id="trackBtn">Check status</button>
+    <p class="note" id="trackNote"></p>
+    <div id="trackResult" class="hide">
+      <h3 id="trackPet"></h3>
+      <ul class="timeline" id="trackSteps"></ul>
+      <div id="pushCard" class="card" style="background:#faf0f6;box-shadow:none">
+        <b>🔔 Get a pickup alert</b>
+        <p class="muted tiny">Turn on a browser notification for when your pup is ready.</p>
+        <button class="btn ghost" id="pushBtn">Alert me when ready</button>
+        <p class="note tiny" id="pushNote"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+<script>
+(function () {
+  "use strict";
+  var ENDPOINT = "https://us-central1-binditails-da2de.cloudfunctions.net/pinkPoodleSpa";
+  var TENANT = new URLSearchParams(location.search).get("t") || "";
+  var STEPS = ["Requested","Checked in","Bathing","Grooming","Finishing","Ready for pickup","Picked up"];
+  var PUSH_VAPID = "BPhfMyXA0u3qoaknWZToDqkY3gkHosnbGZn-9CtmEd92kVQx69On5GO_H-XdSVFkfSvYtmvcRX1S0m-iSHqea48";
+  var PUSH_CFG = { apiKey: "AIzaSyAVU4PeZJI8xqo7YOm8QiKvryEVXuv9gLk", authDomain: "binditails-da2de.firebaseapp.com", projectId: "binditails-da2de", storageBucket: "binditails-da2de.firebasestorage.app", messagingSenderId: "376117416695", appId: "1:376117416695:web:f11c59342cc6a750d739f2" };
+  var $ = function (id) { return document.getElementById(id); };
+  var services = [];
+
+  function api(action, extra) {
+    var body = Object.assign({ action: action, tenantId: TENANT }, extra || {});
+    return fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ("HTTP " + r.status)); return j; }); });
+  }
+  function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+  if (!TENANT) { document.querySelector(".wrap").innerHTML = '<div class="card center">Missing salon id.</div>'; return; }
+
+  /* ---- salon info + services ---- */
+  api("spaTenantInfo").then(function (j) {
+    $("salonName").textContent = (j.business || "Your Salon") + " 🐾";
+    $("emoji").textContent = j.emoji || "🐾";
+    if (j.phone) $("salonPhone").textContent = j.phone;
+    services = j.services || [];
+    var list = $("svcList");
+    if (!services.length) { list.innerHTML = '<p class="muted tiny">Ask us about our services.</p>'; return; }
+    list.innerHTML = services.map(function (s, i) {
+      return '<label class="svc"><input type="checkbox" value="' + i + '" /> ' + esc(s.name) +
+        '<span class="price">$' + (Number(s.price) || 0) + '</span></label>';
+    }).join("");
+  }).catch(function () { $("svcList").innerHTML = '<p class="err tiny">This salon isn\'t set up yet.</p>'; });
+
+  /* ---- tabs ---- */
+  function tab(which) {
+    var isBook = which === "book";
+    $("tabBook").classList.toggle("on", isBook);
+    $("tabTrack").classList.toggle("on", !isBook);
+    $("bookPane").classList.toggle("hide", !isBook);
+    $("trackPane").classList.toggle("hide", isBook);
+  }
+  $("tabBook").onclick = function () { tab("book"); };
+  $("tabTrack").onclick = function () { tab("track"); };
+
+  /* ---- booking ---- */
+  $("bookBtn").onclick = function () {
+    if ($("company").value) return; // honeypot
+    var petName = $("petName").value.trim();
+    var name = $("ownerName").value.trim();
+    var phone = $("ownerPhone").value.trim();
+    if (!petName) { setNote("bookNote", "Please add your pet's name.", true); return; }
+    if (!name || !phone) { setNote("bookNote", "Please add your name and mobile.", true); return; }
+    var picked = [];
+    document.querySelectorAll("#svcList input:checked").forEach(function (c) {
+      var s = services[Number(c.value)]; if (s) picked.push(s.name);
+    });
+    if (!picked.length) { setNote("bookNote", "Choose at least one service.", true); return; }
+    $("bookBtn").disabled = true; setNote("bookNote", "Sending…", false);
+    api("spaBook", {
+      pet: { name: petName, breed: $("petBreed").value.trim() },
+      owner: { name: name, phone: phone, email: $("ownerEmail").value.trim() },
+      services: picked,
+      requestedDate: $("preferred").value.trim(),
+      requestedTime: "",
+      company: ""
+    }).then(function (j) {
+      $("bookBtn").disabled = false;
+      $("bookForm").classList.add("hide");
+      $("bookDone").classList.remove("hide");
+      $("doneCode").textContent = j.code || "";
+    }).catch(function (e) {
+      $("bookBtn").disabled = false; setNote("bookNote", e.message, true);
+    });
+  };
+  $("trackThis").onclick = function () { $("trackCode").value = $("doneCode").textContent; tab("track"); doTrack(); };
+
+  /* ---- tracking ---- */
+  function setNote(id, msg, isErr) { var n = $(id); n.className = "note" + (isErr ? " err" : (msg ? " ok" : "")); n.textContent = msg; }
+  function doTrack() {
+    var code = $("trackCode").value.trim().toUpperCase();
+    if (!code) { setNote("trackNote", "Enter your booking code.", true); return; }
+    $("trackBtn").disabled = true; setNote("trackNote", "Checking…", false);
+    api("spaTrack", { code: code }).then(function (j) {
+      $("trackBtn").disabled = false; setNote("trackNote", "", false);
+      var t = j.ticket || {};
+      $("trackResult").classList.remove("hide");
+      $("trackPet").textContent = (t.petName || "Your pup") + (t.cancelled ? " (cancelled)" : "");
+      $("trackSteps").innerHTML = STEPS.map(function (label, i) {
+        return '<li class="' + (i === t.step ? "on" : "") + '">' + (i < t.step ? "✓ " : (i === t.step ? "➤ " : "")) + esc(label) + '</li>';
+      }).join("");
+      window._trackCode = code;
+      $("pushBtn").textContent = t.alertsOn ? "✓ Alerts on — turn off" : "Alert me when ready";
+      $("pushBtn").dataset.on = t.alertsOn ? "1" : "";
+    }).catch(function (e) {
+      $("trackBtn").disabled = false; $("trackResult").classList.add("hide"); setNote("trackNote", e.message, true);
+    });
+  }
+  $("trackBtn").onclick = doTrack;
+  $("trackCode").addEventListener("keydown", function (e) { if (e.key === "Enter") doTrack(); });
+
+  /* ---- push opt-in ---- */
+  function getPushToken() {
+    if (!firebase || !firebase.messaging || !firebase.messaging.isSupported()) return Promise.reject(new Error("Push isn't supported on this browser."));
+    if (!firebase.apps.length) firebase.initializeApp(PUSH_CFG);
+    return navigator.serviceWorker.register("/firebase-messaging-sw.js").then(function (reg) {
+      return firebase.messaging().getToken({ vapidKey: PUSH_VAPID, serviceWorkerRegistration: reg });
+    });
+  }
+  $("pushBtn").onclick = function () {
+    var code = window._trackCode; if (!code) return;
+    var turnOff = $("pushBtn").dataset.on === "1";
+    setNote("pushNote", "Working…", false); $("pushBtn").disabled = true;
+    getPushToken().then(function (token) {
+      if (!token) throw new Error("Couldn't get a notification token.");
+      return api("spaTrackPush", { code: code, token: token, action: turnOff ? "unsubscribe" : "subscribe" });
+    }).then(function (j) {
+      $("pushBtn").disabled = false;
+      var on = !!j.subscribed;
+      $("pushBtn").dataset.on = on ? "1" : "";
+      $("pushBtn").textContent = on ? "✓ Alerts on — turn off" : "Alert me when ready";
+      setNote("pushNote", on ? "You'll get a notification when your pup is ready. 🔔" : "Alerts turned off.", false);
+    }).catch(function (e) {
+      $("pushBtn").disabled = false; setNote("pushNote", e.message, true);
+    });
+  };
+})();
+</script>
+</body>
+</html>
