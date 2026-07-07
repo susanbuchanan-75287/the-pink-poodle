@@ -810,21 +810,26 @@ function renderStaff() {
       </div>
       <div class="staff__actions">
         <button class="mini" data-sched="${esc(s.id)}" type="button">📅 Schedule</button>
+        <button class="mini" data-pin="${esc(s.id)}" type="button">🔑 PIN</button>
         <button class="mini" data-edit="${esc(s.id)}" type="button">Edit</button>
       </div>
     </div>`;
   }).join('');
   box.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => openStaffModal(b.dataset.edit)));
+  box.querySelectorAll('[data-pin]').forEach((b) => b.addEventListener('click', () => openStaffModal(b.dataset.pin)));
   box.querySelectorAll('[data-sched]').forEach((b) => b.addEventListener('click', () => openSchedModal(b.dataset.sched)));
 }
 
 /* ---- stylist editor ---- */
 function setStaffPinControls(s, id) {
   $('sfPin').value = '';
+  const reveal = $('sfPinReveal');
+  if (reveal) { reveal.style.display = 'none'; reveal.innerHTML = ''; }
   $('sfPinState').textContent = id
     ? (s.hasPin ? 'Personal PIN is set.' : 'No personal PIN set.')
     : 'Save this stylist before setting a personal PIN.';
   $('staffSetPin').disabled = !id;
+  $('staffRandomPin').disabled = !id;
   $('staffClearPin').disabled = !id || !s.hasPin;
 }
 function openStaffModal(id) {
@@ -908,6 +913,53 @@ async function saveStaffPin(clear) {
 }
 $('staffSetPin').addEventListener('click', () => saveStaffPin(false));
 $('staffClearPin').addEventListener('click', () => saveStaffPin(true));
+
+function revealStaffPin(pin, name) {
+  const el = $('sfPinReveal');
+  if (!el) return;
+  el.style.display = '';
+  el.innerHTML = '<div style="background:#fff0f7;border:1px solid #f3c6de;border-radius:10px;padding:.7rem .9rem;margin-top:.6rem">'
+    + '<strong>New PIN for ' + esc(name) + ':</strong> '
+    + '<span style="font-size:1.5rem;font-weight:800;letter-spacing:.18em;color:#b83372;vertical-align:middle">' + esc(pin) + '</span> '
+    + '<button class="mini" type="button" id="sfPinCopy">Copy</button>'
+    + '<div class="muted" style="margin-top:.35rem">Share it with ' + esc(name) + ' now — for security it won\u2019t be shown again after you close this window.</div></div>';
+  const cp = $('sfPinCopy');
+  if (cp) cp.addEventListener('click', () => {
+    if (navigator.clipboard) navigator.clipboard.writeText(pin).then(() => toast('PIN copied')).catch(() => {});
+    else toast(pin);
+  });
+}
+
+async function setRandomStaffPin() {
+  const id = $('sfId').value;
+  if (!id) return setStatus($('staffModalStatus'), 'Save this stylist before setting a personal PIN.', 'err');
+  const name = ($('sfName').value || '').trim() || 'this stylist';
+  $('staffRandomPin').disabled = true;
+  $('staffSetPin').disabled = true;
+  setStatus($('staffModalStatus'), '<span class="spin"></span>Generating a new PIN…', 'info');
+  let lastErr = '';
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const pin = String(Math.floor(1000 + Math.random() * 9000)); // random 4-digit
+    try {
+      await api('staffSetPin', { staffId: id, role: $('sfAccessRole').value, newPin: pin });
+      await loadStaff();
+      const updated = staffCache.find((x) => x.id === id) || {};
+      setStaffPinControls(updated, id);
+      revealStaffPin(pin, name);
+      setStatus($('staffModalStatus'), '✅ New PIN set for ' + esc(name) + '.', 'ok');
+      $('staffRandomPin').disabled = false;
+      $('staffSetPin').disabled = false;
+      return;
+    } catch (err) {
+      lastErr = err.message || '';
+      if (!/already uses|shared salon/i.test(lastErr)) break; // only retry on collisions
+    }
+  }
+  const current = staffCache.find((x) => x.id === id) || {};
+  setStaffPinControls(current, id);
+  setStatus($('staffModalStatus'), '❌ ' + (lastErr || 'Could not set a random PIN — try again.'), 'err');
+}
+$('staffRandomPin').addEventListener('click', setRandomStaffPin);
 
 /* ---- schedule (opt-in availability with hours + recurring blocks) ---- */
 let schedState = null; // { id, name, recurring:[], dateHours:{}, viewY, viewM, editIso }

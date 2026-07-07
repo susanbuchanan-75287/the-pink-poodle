@@ -1292,6 +1292,7 @@
     loadVaxConfig();
     loadDepositConfig();
     loadReviewConfig();
+    loadStaffPins();
   }
   function drawFees() {
     $('feesBody').innerHTML = feesCache.map(function (f, i) {
@@ -1322,6 +1323,52 @@
       staffPin = np; $('newPin').value = ''; toast('PIN updated 🔒');
     }).catch(function (e) { toast(e.message); });
   });
+  var staffCache = [];
+  function loadStaffPins() {
+    if (!can('owner')) { $('staffPinBody').innerHTML = '<p class="muted">Owner PIN required to manage employee PINs.</p>'; return; }
+    api('spaStaffList', { pin: staffPin }).then(function (res) {
+      staffCache = res.staff || [];
+      drawStaffPins();
+    }).catch(function (e) { $('staffPinBody').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  function drawStaffPins() {
+    if (!staffCache.length) { $('staffPinBody').innerHTML = '<p class="muted">No team members yet.</p>'; return; }
+    var roles = ['stylist', 'manager', 'owner'];
+    $('staffPinBody').innerHTML = staffCache.map(function (s) {
+      var roleOpts = roles.map(function (r) { return '<option value="' + r + '"' + (s.accessRole === r ? ' selected' : '') + '>' + r + '</option>'; }).join('');
+      return '<div style="border-top:1px solid #f0d3e4;padding:0.6rem 0">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap">' +
+          '<div><strong>' + esc(s.name) + '</strong> ' + (s.hasPin ? '<span class="pill" style="background:#e6f7ee;color:#1f9d57">PIN set ✓</span>' : '<span class="muted">no personal PIN</span>') + '</div>' +
+          '<select data-role="' + esc(s.id) + '" style="max-width:130px">' + roleOpts + '</select>' +
+        '</div>' +
+        '<div class="row2" style="grid-template-columns:1fr auto auto;gap:0.4rem;align-items:center;margin-top:0.4rem">' +
+          '<input type="password" data-pin="' + esc(s.id) + '" inputmode="numeric" placeholder="New PIN (4–8 digits)" />' +
+          '<button class="btn btn--soft btn--sm" data-setpin="' + esc(s.id) + '" type="button">Set PIN</button>' +
+          (s.hasPin ? '<button class="btn btn--soft btn--sm" data-clearpin="' + esc(s.id) + '" type="button">Clear</button>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+    $('staffPinBody').querySelectorAll('[data-setpin]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.dataset.setpin;
+        var np = $('staffPinBody').querySelector('[data-pin="' + id + '"]').value.trim();
+        var role = $('staffPinBody').querySelector('[data-role="' + id + '"]').value;
+        if (!/^\d{4,8}$/.test(np)) { toast('PIN must be 4–8 digits'); return; }
+        api('spaStaffPin', { pin: staffPin, staffId: id, newPin: np, role: role })
+          .then(function () { toast('Employee PIN set 🔒'); loadStaffPins(); })
+          .catch(function (e) { toast(e.message); });
+      });
+    });
+    $('staffPinBody').querySelectorAll('[data-clearpin]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.dataset.clearpin;
+        var role = $('staffPinBody').querySelector('[data-role="' + id + '"]').value;
+        api('spaStaffPin', { pin: staffPin, staffId: id, clear: true, role: role })
+          .then(function () { toast('Employee PIN cleared'); loadStaffPins(); })
+          .catch(function (e) { toast(e.message); });
+      });
+    });
+  }
   function loadVaxConfig() {
     if (!can('manager')) { drawVaxConfig(); return; }
     api('spaVaxConfig', { pin: staffPin }).then(function (res) {

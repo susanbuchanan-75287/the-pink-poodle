@@ -309,9 +309,15 @@
           <button class="btn btn--primary btn--block" id="revCfgSaveBtn" type="button">Save review settings</button>
         </div>
         <div class="card" id="pinCard" data-min-role="owner" style="margin-top:1rem">
-          <h2 style="margin-top:0">Change staff PIN</h2>
+          <h2 style="margin-top:0">Change shared owner PIN</h2>
+          <p class="muted" style="margin-top:-0.3rem">This is the salon's owner-level PIN (full access). Employees should use their own PINs below.</p>
           <div class="field"><label>New PIN (4–8 digits)</label><input type="password" id="newPin" inputmode="numeric" placeholder="New PIN" /></div>
-          <button class="btn btn--soft btn--block" id="pinSaveBtn" type="button">Update PIN</button>
+          <button class="btn btn--soft btn--block" id="pinSaveBtn" type="button">Update owner PIN</button>
+        </div>
+        <div class="card" id="staffPinCard" data-min-role="owner" style="margin-top:1rem">
+          <h2 style="margin-top:0">Employee PINs 👥</h2>
+          <p class="muted" style="margin-top:-0.3rem">Give each employee their own PIN. Their role controls access — <strong>stylist</strong> handles day-to-day; <strong>manager</strong> can also void, edit fees &amp; the ledger; <strong>owner</strong> has full access.</p>
+          <div id="staffPinBody"><p class="muted">Loading team…</p></div>
         </div>
       </div>
     </section>
