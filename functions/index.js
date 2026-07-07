@@ -1573,7 +1573,7 @@ exports.pinkPoodleReset = onRequest(
    Pink Poodle Spa app — LIVE backend.
    Customer actions (spaBook / spaTrack / spaCancelByCode / spaMenu) are
    public + rate-limited. Staff actions require the salon spa PIN
-   (pp_config/spa.pin, default "0221"). ALL state is server-side
+   (pp_config/spa.pin, set in-app). ALL state is server-side
    (Firestore) — the app persists nothing in the browser.
    ===================================================================== */
 const SPA_TICKETS = "pp_spa_tickets";
@@ -1583,7 +1583,7 @@ const SPA_WAITLIST = "pp_spa_waitlist";
 const SPA_INVENTORY = "pp_spa_inventory";
 const SPA_GEOCACHE = "pp_spa_geocache";
 const SPA_PLATFORM_LEADS = "pp_platform_leads";
-const SPA_PIN_DEFAULT = "0221";
+const SPA_PIN_DEFAULT = "1234";
 const SPA_STEPS = ["Requested", "Checked in", "Bathing", "Grooming", "Finishing", "Ready for pickup", "Picked up"];
 const DEFAULT_FEES = [
   { label: "De-matting fee", amount: 15 },
@@ -3491,6 +3491,33 @@ exports.pinkPoodleSpa = onRequest(
           if (!/^\d{4,8}$/.test(np)) return res.status(400).json({ error: "PIN must be 4–8 digits." });
           await db.collection("pp_config").doc("spa").set({ pin: np, updatedAt: now() }, { merge: true });
           return res.json({ ok: true });
+        }
+
+        case "spaStaffList": {
+          // Owner reads the staff roster (id, name, role, whether a personal PIN
+          // is set) so employee PINs can be managed from the spa app with the
+          // owner PIN — not only from the passphrase-gated Salon Console. The PIN
+          // hash never leaves the server (staffOut omits it).
+          if (!requireRole(actor, "owner", res)) return;
+          let snap = await db.collection(STAFF).get();
+          if (snap.empty) {
+            const batch = db.batch();
+            for (const s of DEFAULT_STAFF) {
+              const ref = db.collection(STAFF).doc();
+              batch.set(ref, {
+                name: s.name, role: s.role, tags: s.tags, phone: s.phone, order: s.order,
+                active: true, squareTeamMemberId: "",
+                accessRole: s.order === 0 ? "owner" : "stylist",
+                sms: { enabled: false, from: "" },
+                weeklyOff: [], datesOff: [], datesOn: [],
+                createdAt: now(), updatedAt: now(),
+              });
+            }
+            await batch.commit();
+            snap = await db.collection(STAFF).get();
+          }
+          const staff = snap.docs.map(staffOut).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+          return res.json({ ok: true, staff });
         }
 
         case "spaStaffPin": {

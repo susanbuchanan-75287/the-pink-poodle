@@ -182,7 +182,7 @@
       </div>
       <div class="field">
         <label for="resetPin">New stylist spa PIN <span class="muted">(optional — 4–8 digits, leave blank to keep current)</span></label>
-        <input type="text" id="resetPin" inputmode="numeric" pattern="\d{4,8}" placeholder="e.g. 0221" />
+        <input type="text" id="resetPin" inputmode="numeric" pattern="\d{4,8}" placeholder="e.g. 1234" />
       </div>
       <button type="submit" class="btn btn--primary btn--block">Save New Passphrase</button>
       <div class="status" id="resetStatus"></div>
@@ -320,7 +320,7 @@
         <form class="card" id="spaPinForm">
           <h3 style="font-family:var(--serif);margin-bottom:.4rem">Reset stylist spa PIN 🔢</h3>
           <p class="muted" style="margin-bottom:1rem">The 4–8 digit PIN stylists use for the spa app at <a href="spa.html" target="_blank" rel="noopener">spa.html</a>. You can reset it here without knowing the old one — handy if a stylist forgets it. A private copy is emailed to Susan.</p>
-          <div class="field"><label for="spaNewPin">New spa PIN (4–8 digits)</label><input type="text" id="spaNewPin" inputmode="numeric" pattern="\d{4,8}" placeholder="e.g. 0221" /></div>
+          <div class="field"><label for="spaNewPin">New spa PIN (4–8 digits)</label><input type="text" id="spaNewPin" inputmode="numeric" pattern="\d{4,8}" placeholder="e.g. 1234" /></div>
           <button type="submit" class="btn btn--primary btn--block" id="spaPinBtn">Reset spa PIN</button>
           <div class="status" id="spaPinStatus"></div>
         </form>
