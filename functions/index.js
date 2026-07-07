@@ -1841,6 +1841,8 @@ function normHoursConfig(raw) {
     capacity: clampInt(h.capacity, 1, 40, DEFAULT_HOURS.capacity),
     leadMins: clampInt(h.leadMins, 0, 14 * 24 * 60, DEFAULT_HOURS.leadMins),
     horizonDays: clampInt(h.horizonDays, 1, 180, DEFAULT_HOURS.horizonDays),
+    autoConfirm: !!h.autoConfirm,
+    perStylist: !!h.perStylist,
     days: {},
     closed: [],
     dateHours: {},
@@ -1894,6 +1896,58 @@ function blocksForDate(hours, iso) {
   return hours.days[String(isoWeekday(iso))] || [];
 }
 
+/** Whether a stylist has any personal availability configured. */
+function stylistHasSchedule(st) {
+  return (Array.isArray(st.recurring) && st.recurring.length > 0) ||
+    (st.dateHours && typeof st.dateHours === "object" && Object.keys(st.dateHours).length > 0);
+}
+
+/** Open blocks for one stylist on a date (personal availability, else salon hours).
+ *  Reuses the per-staff model already editable in the Salon Console:
+ *  dateHours override > closedRanges > recurring; no schedule => inherit salon hours. */
+function stylistBlocksForDate(st, iso, salonHours) {
+  if (!stylistHasSchedule(st)) return blocksForDate(salonHours, iso);
+  const dh = (st.dateHours && st.dateHours[iso]) || null;
+  if (dh) {
+    if (dh.on === false) return [];
+    if (isHhmm(dh.start) && isHhmm(dh.end) && hhmmToMin(dh.end) > hhmmToMin(dh.start)) return [{ start: dh.start, end: dh.end }];
+    return [];
+  }
+  for (const c of (Array.isArray(st.closedRanges) ? st.closedRanges : [])) {
+    if (c && iso >= c.from && iso <= c.to) return [];
+  }
+  const wd = isoWeekday(iso);
+  const blocks = [];
+  (Array.isArray(st.recurring) ? st.recurring : []).forEach((r) => {
+    if (!r || !Array.isArray(r.days) || r.days.indexOf(wd) < 0) return;
+    if (r.from && iso < r.from) return;
+    if (r.to && iso > r.to) return;
+    if (isHhmm(r.start) && isHhmm(r.end) && hhmmToMin(r.end) > hhmmToMin(r.start)) blocks.push({ start: r.start, end: r.end });
+  });
+  return blocks;
+}
+
+/** Active stylists for a scope (id + name + availability), sorted by order. */
+async function activeStylists(scope) {
+  const out = [];
+  try {
+    const snap = await scope.staff().get();
+    snap.docs.forEach((d) => {
+      const x = d.data() || {};
+      if (x.active === false) return;
+      out.push({
+        id: d.id,
+        name: String(x.name || "").slice(0, 60),
+        order: typeof x.order === "number" ? x.order : 99,
+        recurring: Array.isArray(x.recurring) ? x.recurring : [],
+        closedRanges: Array.isArray(x.closedRanges) ? x.closedRanges : [],
+        dateHours: (x.dateHours && typeof x.dateHours === "object") ? x.dateHours : {},
+      });
+    });
+  } catch (e) { console.error("activeStylists failed", e && e.message); }
+  return out.filter((s) => s.name).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+}
+
 /** Structured services (name + minutes) for a scope, used to size appointments. */
 async function servicesFor(scope) {
   let list = [];
@@ -1920,31 +1974,33 @@ function durationForServices(serviceList, chosenNames) {
   return total;
 }
 
-/** Compute bookable slots for a date given hours, a duration, and existing appts. */
-function computeSlots(hours, iso, durationMins, bookedIntervals, minStartMin) {
-  const step = hours.slotStep;
+/** Compute bookable slots from open blocks, a step, capacity, duration, and booked appts. */
+function computeSlots(blocks, step, capacity, durationMins, bookedIntervals, minStartMin) {
   const slots = [];
-  for (const bl of blocksForDate(hours, iso)) {
+  for (const bl of blocks) {
     const bs = hhmmToMin(bl.start), be = hhmmToMin(bl.end);
     for (let t = Math.ceil(bs / step) * step; t + durationMins <= be; t += step) {
       if (t < minStartMin) continue;
       const overlaps = bookedIntervals.filter(([s, e]) => t < e && (t + durationMins) > s).length;
-      const remaining = hours.capacity - overlaps;
+      const remaining = capacity - overlaps;
       if (remaining > 0) slots.push({ time: minToHhmm(t), remaining });
     }
   }
   return slots;
 }
 
-/** Load same-date appointment intervals [startMin,endMin] for capacity math. */
-async function bookedIntervalsFor(scope, iso) {
+/** Load same-date appointment intervals [startMin,endMin] for capacity math.
+ *  Pass stylistName to count only that stylist's appointments (per-stylist mode). */
+async function bookedIntervalsFor(scope, iso, stylistName) {
   const out = [];
+  const only = stylistName ? String(stylistName).trim().toLowerCase() : "";
   try {
     const snap = await scope.tix().where("apptDate", "==", iso).limit(500).get();
     snap.forEach((d) => {
       const x = d.data() || {};
       if (x.cancelled || x.voided) return;
       if (!isHhmm(x.apptTime)) return;
+      if (only && String(x.stylist || "").trim().toLowerCase() !== only) return;
       const s = hhmmToMin(x.apptTime);
       out.push([s, s + (clampInt(x.apptDurationMins, 10, 480, 60))]);
     });
@@ -2588,21 +2644,27 @@ exports.pinkPoodleSpa = onRequest(
             .map((s) => ({ name: String(s.name || "").slice(0, 60), price: Math.max(0, Number(s.price) || 0), mins: clampInt(s.mins, 10, 480, 60), desc: String(s.desc || "").slice(0, 200) }))
             .filter((s) => s.name).slice(0, 40);
           const hours = await loadHoursFor(scope);
-          return res.json({
+          const info = {
             ok: true,
             business: scope.tenant.business || "Your Salon",
             emoji: (scope.tenant.brand && scope.tenant.brand.emoji) || "🐾",
             brand: scope.tenant.brand || {},
             phone: scope.tenant.phone || (scope.tenant.owner && scope.tenant.owner.phone) || "",
             services,
-            scheduling: { horizonDays: hours.horizonDays, slotStep: hours.slotStep, capacity: hours.capacity, leadMins: hours.leadMins },
-          });
+            scheduling: { horizonDays: hours.horizonDays, slotStep: hours.slotStep, capacity: hours.capacity, leadMins: hours.leadMins, autoConfirm: hours.autoConfirm, perStylist: hours.perStylist },
+          };
+          if (hours.perStylist) {
+            info.stylists = (await activeStylists(scope)).map((s) => ({ id: s.id, name: s.name }));
+          }
+          return res.json(info);
         }
 
         case "spaSlots": {
           // Public: available appointment start times for a date. Reuses the
           // salon's open-hours model (weekly + closures + per-date overrides)
           // and subtracts already-booked appointments up to the salon capacity.
+          // In per-stylist mode, a chosen stylist's own availability + calendar
+          // is used (capacity 1 — one dog at a time per groomer).
           const date = String(b.date || "").slice(0, 10);
           if (!isIsoDate(date)) return res.status(400).json({ error: "Pick a valid date." });
           const hours = await loadHoursFor(scope);
@@ -2615,9 +2677,19 @@ exports.pinkPoodleSpa = onRequest(
             dur = durationForServices(svc, b.services);
           }
           if (!dur) dur = 60;
-          const booked = await bookedIntervalsFor(scope, date);
           const minStart = (date === today) ? (etNowMin() + hours.leadMins) : 0;
-          const slots = computeSlots(hours, date, dur, booked, minStart);
+          const wantStylist = String(b.stylist || "").trim();
+          if (hours.perStylist && wantStylist && wantStylist.toLowerCase() !== "no preference") {
+            const stylists = await activeStylists(scope);
+            const st = stylists.find((s) => s.id === wantStylist || s.name.toLowerCase() === wantStylist.toLowerCase());
+            if (!st) return res.json({ ok: true, date, closed: true, reason: "no-stylist", slots: [] });
+            const blocks = stylistBlocksForDate(st, date, hours);
+            const booked = await bookedIntervalsFor(scope, date, st.name);
+            const slots = computeSlots(blocks, hours.slotStep, 1, dur, booked, minStart);
+            return res.json({ ok: true, date, durationMins: dur, capacity: 1, stylist: st.name, slots, closed: slots.length === 0 });
+          }
+          const booked = await bookedIntervalsFor(scope, date);
+          const slots = computeSlots(blocksForDate(hours, date), hours.slotStep, hours.capacity, dur, booked, minStart);
           return res.json({ ok: true, date, durationMins: dur, capacity: hours.capacity, slots, closed: slots.length === 0 });
         }
 
@@ -2788,21 +2860,26 @@ exports.pinkPoodleSpa = onRequest(
             if (todayCount.size > cap) return res.status(429).json({ error: "This salon has reached today's booking limit." });
           }
           // Chosen appointment slot (optional). When present, size it by the
-          // selected services' durations and enforce the salon's capacity so we
-          // never overbook a time slot beyond how many dogs can be groomed at once.
+          // selected services' durations and enforce capacity so we never
+          // overbook a slot. Per-stylist mode enforces 1 dog per groomer.
           const apptDate = isIsoDate(b.requestedDate) ? b.requestedDate : "";
           const apptTime = isHhmm(b.requestedTime) ? b.requestedTime : "";
+          const stylistName = String(b.stylist || "").trim().slice(0, 40);
           let apptDurationMins = 0;
+          let autoConfirmed = false;
           if (apptDate && apptTime) {
             const hoursCfg = await loadHoursFor(scope);
             const svcList = await servicesFor(scope);
             apptDurationMins = clampInt(b.durationMins, 10, 480, 0) || durationForServices(svcList, services) || 60;
             const startMin = hhmmToMin(apptTime);
-            const booked = await bookedIntervalsFor(scope, apptDate);
+            const perStylistPick = hoursCfg.perStylist && stylistName && stylistName.toLowerCase() !== "no preference";
+            const cap = perStylistPick ? 1 : hoursCfg.capacity;
+            const booked = await bookedIntervalsFor(scope, apptDate, perStylistPick ? stylistName : "");
             const overlaps = booked.filter(([s, e]) => startMin < e && (startMin + apptDurationMins) > s).length;
-            if (overlaps >= hoursCfg.capacity) {
-              return res.status(409).json({ error: "That time just filled up — please pick another slot." });
+            if (overlaps >= cap) {
+              return res.status(409).json({ error: perStylistPick ? (stylistName + " is booked at that time — please pick another slot.") : "That time just filled up — please pick another slot." });
             }
+            autoConfirmed = !!hoursCfg.autoConfirm;
           }
           const rec = {
             code: genCode(),
@@ -2814,7 +2891,7 @@ exports.pinkPoodleSpa = onRequest(
             owner: { name: String(owner.name || "").slice(0, 80), phone: normalizePhone(owner.phone), email: String(owner.email || "").slice(0, 120) },
             services,
             items,
-            stylist: String(b.stylist || "No preference").slice(0, 40),
+            stylist: stylistName || "No preference",
             requestedDate: String(b.requestedDate || "").slice(0, 40),
             requestedTime: String(b.requestedTime || "").slice(0, 40),
             // Vaccination intake: proof uploaded now, or acknowledged bring-on-day.
@@ -2824,14 +2901,38 @@ exports.pinkPoodleSpa = onRequest(
             apptDate,
             apptTime,
             apptDurationMins,
-            confirmed: false,
+            confirmed: autoConfirmed,
+            confirmedAt: autoConfirmed ? now() : null,
             est: Math.max(0, Number(b.est) || 0),
             createdAt: now(),
           };
           const r = await scope.tix().add(rec);
           const clientId = await upsertClientFromBooking(rec, scope);
           if (clientId) await r.set({ clientId }, { merge: true });
-          return res.json({ ok: true, code: rec.code, id: r.id });
+          // Auto-confirm: email the owner right away that their slot is confirmed.
+          if (autoConfirmed && rec.owner.email) {
+            try {
+              const br = scope.brand || {};
+              const niceTime = apptTime;
+              await sendEmail({
+                to: rec.owner.email,
+                subject: `${br.emoji || "🐾"} You're booked at ${br.name || "our salon"} — ${apptDate} ${niceTime}`,
+                html: `<div style="font-family:Arial,sans-serif;max-width:520px;color:#3a2733">
+                  <h2 style="color:#b83372">Appointment confirmed ${br.emoji || "🐾"}</h2>
+                  <p>Hi ${esc(rec.owner.name || "there")}, ${esc(petName)}'s spa day is booked:</p>
+                  <ul>
+                    <li><b>When:</b> ${esc(apptDate)} at ${esc(niceTime)}</li>
+                    <li><b>Services:</b> ${esc(services.join(", "))}</li>
+                    ${stylistName && stylistName.toLowerCase() !== "no preference" ? "<li><b>Stylist:</b> " + esc(stylistName) + "</li>" : ""}
+                  </ul>
+                  <p>Your tracking code is <b>${esc(rec.code)}</b>.</p>
+                  <p style="color:#8a7580">${esc(br.name || "")}${br.phone ? " · " + esc(br.phone) : ""}</p>
+                </div>`,
+                text: `Confirmed: ${petName} on ${apptDate} at ${niceTime}. Services: ${services.join(", ")}. Code ${rec.code}.`,
+              });
+            } catch (_e) { /* non-fatal */ }
+          }
+          return res.json({ ok: true, code: rec.code, id: r.id, confirmed: autoConfirmed });
         }
 
         case "spaTrack": {

@@ -136,6 +136,13 @@
         <label>Least notice (hours)<input id="leadHours" type="number" min="0" step="1" value="1" /></label>
         <label>Book up to (days out)<input id="horizonDays" type="number" min="1" step="1" value="45" /></label>
       </div>
+      <label style="display:flex;align-items:center;gap:.5rem;margin-top:.6rem;font-weight:600">
+        <input type="checkbox" id="autoConfirm" style="width:auto" /> Auto-confirm bookings (no manual approval)
+      </label>
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600">
+        <input type="checkbox" id="perStylist" style="width:auto" /> Let clients pick a stylist (per-stylist calendars)
+      </label>
+      <p class="hint">Per-stylist uses each groomer's own hours from the staff console (one dog at a time per groomer).</p>
     </div>
 
     <div class="panel">
@@ -426,6 +433,8 @@
       capacity: parseInt($("capacity").value, 10) || 1,
       leadMins: (parseInt($("leadHours").value, 10) || 0) * 60,
       horizonDays: parseInt($("horizonDays").value, 10) || 45,
+      autoConfirm: $("autoConfirm").checked,
+      perStylist: $("perStylist").checked,
       days: days,
     };
   }
@@ -433,7 +442,7 @@
   /* ---- wire up ---- */
   var inputs = ["business", "slug", "owner", "town", "phone", "sms", "email", "emoji", "address", "hours",
     "tagline", "about", "c_primary", "c_accent", "c_ink", "c_cream", "bookingEndpoint", "bookMode",
-    "capacity", "slotStep", "leadHours", "horizonDays"];
+    "capacity", "slotStep", "leadHours", "horizonDays", "autoConfirm", "perStylist"];
   inputs.forEach(function (id) { $(id).addEventListener("input", render); });
   $("slug").addEventListener("input", function () { slugTouched = true; });
   $("business").addEventListener("input", function () {

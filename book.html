@@ -62,6 +62,7 @@
       <label>Breed / size<input id="petBreed" placeholder="e.g. Goldendoodle, 45 lbs" /></label>
       <label>Services</label>
       <div id="svcList"><p class="muted tiny">Loading services…</p></div>
+      <div id="stylistWrap" class="hide"><label>Preferred stylist<select id="stylistSel"></select></label></div>
       <label>Choose a day<input id="apptDate" type="date" /></label>
       <div id="slotWrap" class="hide">
         <label>Available times <span class="muted tiny" id="durHint"></span></label>
@@ -74,7 +75,7 @@
       <p class="note" id="bookNote"></p>
     </div>
     <div id="bookDone" class="hide center">
-      <p>🎉 Request received! We'll confirm shortly.</p>
+      <p id="doneMsg">🎉 Request received! We'll confirm shortly.</p>
       <p class="muted tiny">Your tracking code</p>
       <div class="codebox" id="doneCode"></div>
       <button class="btn ghost" id="trackThis">Track this booking</button>
@@ -131,6 +132,13 @@
     if (j.phone) $("salonPhone").textContent = j.phone;
     services = j.services || [];
     if (j.scheduling) sched = j.scheduling;
+    if (sched.perStylist && j.stylists && j.stylists.length) {
+      var sel = $("stylistSel");
+      sel.innerHTML = '<option value="No preference">No preference</option>' +
+        j.stylists.map(function (s) { return '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>'; }).join("");
+      $("stylistWrap").classList.remove("hide");
+      sel.onchange = function () { selTime = ""; if ($("apptDate").value) loadSlots(); };
+    }
     setupDatePicker();
     var list = $("svcList");
     if (!services.length) { list.innerHTML = '<p class="muted tiny">Ask us about our services.</p>'; return; }
@@ -162,6 +170,10 @@
     return mins;
   }
   function onSelectionChange() { selTime = ""; if ($("apptDate").value) loadSlots(); }
+  function selectedStylist() {
+    var sel = $("stylistSel");
+    return (sched.perStylist && sel && !$("stylistWrap").classList.contains("hide")) ? sel.value : "";
+  }
   function loadSlots() {
     var date = $("apptDate").value;
     var wrap = $("slotWrap"), listEl = $("slotList"), msg = $("slotMsg");
@@ -172,7 +184,7 @@
     $("durHint").textContent = dur ? ("(" + dur + " min appointment)") : "";
     if (slotTimer) clearTimeout(slotTimer);
     slotTimer = setTimeout(function () {
-      api("spaSlots", { date: date, services: selectedServiceNames(), durationMins: dur || 0 }).then(function (j) {
+      api("spaSlots", { date: date, services: selectedServiceNames(), durationMins: dur || 0, stylist: selectedStylist() }).then(function (j) {
         var slots = j.slots || [];
         if (!slots.length) { msg.textContent = j.reason === "too-far" ? "That date is beyond our booking window." : "No open times that day — try another date."; return; }
         msg.textContent = "";
@@ -224,6 +236,7 @@
       pet: { name: petName, breed: $("petBreed").value.trim(), notes: $("notes").value.trim() },
       owner: { name: name, phone: phone, email: $("ownerEmail").value.trim() },
       services: picked,
+      stylist: selectedStylist(),
       requestedDate: $("apptDate").value,
       requestedTime: selTime,
       durationMins: selectedDuration() || 0,
@@ -232,6 +245,7 @@
       $("bookBtn").disabled = false;
       $("bookForm").classList.add("hide");
       $("bookDone").classList.remove("hide");
+      if (j.confirmed) { $("doneMsg").textContent = "✅ Booked & confirmed! See you then."; }
       $("doneCode").textContent = j.code || "";
     }).catch(function (e) {
       $("bookBtn").disabled = false; setNote("bookNote", e.message, true);
