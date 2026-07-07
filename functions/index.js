@@ -2165,6 +2165,7 @@ function spaTicketPublic(doc) {
     apptDate: d.apptDate || "",
     apptTime: d.apptTime || "",
     confirmed: !!d.confirmed,
+    alertsOn: Array.isArray(d.ownerPushTokens) && d.ownerPushTokens.length > 0,
   };
 }
 function spaTicketFull(doc) {
@@ -2255,6 +2256,7 @@ exports.pinkPoodleSpa = onRequest(
     memory: "256MiB",
     timeoutSeconds: 30,
     region: "us-central1",
+    secrets: [SENDGRID_API_KEY],
   },
   async (req, res) => {
     if (req.method === "OPTIONS") return res.status(204).send("");
@@ -2263,7 +2265,7 @@ exports.pinkPoodleSpa = onRequest(
     const b = req.body || {};
     const action = b.action;
     const ip = clientIp(req);
-    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaCancelByCode", "spaConfirmByCode", "spaRescheduleByCode", "spaWaitlistJoin", "spaVaxUpload", "spaPlatformLead"];
+    const PUBLIC = ["spaMenu", "spaBook", "spaTrack", "spaTrackPush", "spaCancelByCode", "spaConfirmByCode", "spaRescheduleByCode", "spaWaitlistJoin", "spaVaxUpload", "spaPlatformLead"];
     let actor = null;
 
     try {
@@ -2395,6 +2397,30 @@ exports.pinkPoodleSpa = onRequest(
             console.error("loyalty calc failed", e && e.message);
           }
           return res.json({ ok: true, ticket: spaTicketPublic(doc), loyalty });
+        }
+
+        case "spaTrackPush": {
+          // Owner opts in (from their tracking page) to a browser push alert for
+          // THIS booking. We tie their FCM web token to the ticket so staff can
+          // ping just them when the pup is ready — separate from the salon-wide
+          // promo push list. Honeypot + rate-limited like the other public calls.
+          if (b.company) return res.json({ ok: true }); // honeypot
+          const ok = await checkRateLimit("spatrackpush", ip, { max: 30, windowMs: 10 * 60 * 1000 });
+          if (!ok) return res.status(429).json({ error: "Too many requests. Please try again shortly." });
+          const codeUp = String(b.code || "").trim().toUpperCase().slice(0, 10);
+          const tok = String(b.token || "").trim();
+          if (!codeUp) return res.status(400).json({ error: "Enter your booking code." });
+          if (tok.length < 20) return res.status(400).json({ error: "Invalid notification token." });
+          const snap = await db.collection(SPA_TICKETS).where("code", "==", codeUp).limit(1).get();
+          if (snap.empty) return res.status(404).json({ error: "No booking found for that code." });
+          const ref = snap.docs[0].ref;
+          const FieldValue = admin.firestore.FieldValue;
+          if (b.action === "unsubscribe") {
+            await ref.set({ ownerPushTokens: FieldValue.arrayRemove(tok) }, { merge: true });
+            return res.json({ ok: true, subscribed: false });
+          }
+          await ref.set({ ownerPushTokens: FieldValue.arrayUnion(tok), ownerPushAt: now() }, { merge: true });
+          return res.json({ ok: true, subscribed: true });
         }
 
         case "spaCancelByCode": {
@@ -2588,6 +2614,90 @@ exports.pinkPoodleSpa = onRequest(
           const step = Math.max(0, Math.min(6, Number(b.step)));
           await db.collection(SPA_TICKETS).doc(b.id).set({ step, cancelled: false }, { merge: true });
           return res.json({ ok: true });
+        }
+
+        case "spaNotifyOwner": {
+          // Staff-triggered owner notification for a live ticket. Two working
+          // channels: "email" (SendGrid, needs owner.email) and "push" (FCM web
+          // push to the tokens the owner opted in with on their tracking page).
+          // "sms" is intentionally dormant until Twilio A2P is live.
+          const id = String(b.id || "");
+          if (!id) return res.status(400).json({ error: "Missing id." });
+          const doc = await db.collection(SPA_TICKETS).doc(id).get();
+          if (!doc.exists) return res.status(404).json({ error: "Ticket not found." });
+          const t = doc.data() || {};
+          const owner = t.owner || {};
+          const petName = (t.pet && t.pet.name) || "your pup";
+          const firstName = String(owner.name || "").trim().split(/\s+/)[0] || "there";
+          const code = t.code || "";
+          const channel = String(b.channel || "email").toLowerCase();
+          const kind = String(b.kind || "checkedin").toLowerCase();
+          const FieldValue = admin.firestore.FieldValue;
+          const logNotify = (ch) => doc.ref.set({
+            notifyLog: FieldValue.arrayUnion({ kind, channel: ch, at: Date.now(), by: (actor && actor.name) || "" }),
+          }, { merge: true }).catch(() => {});
+
+          if (channel === "sms") {
+            return res.status(400).json({ error: "Text messaging isn't turned on yet — coming soon. Use email or a push alert for now." });
+          }
+
+          if (channel === "push") {
+            const tokens = Array.isArray(t.ownerPushTokens) ? t.ownerPushTokens : [];
+            if (!tokens.length) {
+              return res.status(400).json({ error: `${owner.name || "The owner"} hasn't turned on pickup alerts yet. Send an email, or ask them to tap “Alert me when ready” on their tracking page.` });
+            }
+            const messaging = admin.messaging();
+            const dead = ["messaging/registration-token-not-registered", "messaging/invalid-registration-token"];
+            const title = kind === "checkedin" ? `🛁 ${petName} is checked in!` : `🐩 ${petName} is ready for pickup!`;
+            const bodyText = kind === "checkedin"
+              ? `${petName} is safe with us at The Pink Poodle and starting their spa day.`
+              : `${petName} is all pampered and ready to go home! See you soon. 🩷`;
+            let sent = 0, failed = 0;
+            for (const tok of tokens) {
+              try {
+                await messaging.send({
+                  token: tok,
+                  notification: { title, body: bodyText },
+                  webpush: {
+                    fcmOptions: { link: `https://thepinkpoodle.dog/spa.html#track` },
+                    notification: { icon: "https://thepinkpoodle.dog/assets/paris.jpg", tag: "pp-pickup-" + code },
+                  },
+                });
+                sent++;
+              } catch (err) {
+                failed++;
+                if (dead.includes(err.code)) await doc.ref.set({ ownerPushTokens: FieldValue.arrayRemove(tok) }, { merge: true }).catch(() => {});
+              }
+            }
+            if (!sent) return res.status(400).json({ error: "Couldn't reach the owner's device — their alert may have been turned off. Try email instead." });
+            await logNotify("push");
+            return res.json({ ok: true, channel: "push", sent, failed });
+          }
+
+          // channel === "email" (default)
+          const to = String(owner.email || "").trim();
+          if (!to) return res.status(400).json({ error: `No email on file for ${owner.name || "this owner"}. Add one in Clients, or send a push alert.` });
+          const ready = kind === "ready";
+          const subject = ready ? `${petName} is ready for pickup! 🐩` : `${petName} is checked in at The Pink Poodle 🛁`;
+          const line = ready
+            ? `Great news — ${petName} is all pampered and ready to go home! Come by whenever you're ready. 🩷`
+            : `Just letting you know ${petName} arrived safely and is starting their spa day with us. We'll let you know the moment they're ready. 🛁`;
+          const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#3a2733">
+            <h2 style="color:#b83372;margin:0 0 .4rem">The Pink Poodle 🐩</h2>
+            <p>Hi ${esc(firstName)},</p>
+            <p>${esc(line)}</p>
+            <p style="color:#8a7580;font-size:.9rem">Booking ref: <strong>${esc(code)}</strong>${ready ? "" : ` · Track ${esc(petName)}'s spa day at <a href="https://thepinkpoodle.dog/spa.html#track">thepinkpoodle.dog</a>`}</p>
+            <p style="color:#8a7580;font-size:.85rem">The Pink Poodle · (304) 921-2748</p>
+          </div>`;
+          const text = `Hi ${firstName}, ${line} Booking ref: ${code}. — The Pink Poodle, (304) 921-2748`;
+          try {
+            await sendEmail({ to, subject, html, text, replyTo: OWNER_EMAIL });
+          } catch (e) {
+            console.error("spaNotifyOwner email failed", e && e.message);
+            return res.status(502).json({ error: "Couldn't send the email right now — please try again." });
+          }
+          await logNotify("email");
+          return res.json({ ok: true, channel: "email" });
         }
 
         case "spaSchedule": {

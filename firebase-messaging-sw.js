@@ -45,7 +45,7 @@ self.addEventListener('notificationclick', function (event) {
    Only the staff spa app + its assets are served offline; the public marketing
    site always hits the network so it never shows stale content.
 --------------------------------------------------------------------------- */
-var PP_CACHE = 'pp-spa-v2';
+var PP_CACHE = 'pp-spa-v3';
 var PP_ASSETS = ['/spa.html', '/spa.css', '/spa.js', '/spa.webmanifest', '/assets/icon-192.png', '/assets/icon-512.png'];
 
 self.addEventListener('install', function (e) {

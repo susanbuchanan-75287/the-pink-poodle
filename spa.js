@@ -23,6 +23,18 @@
     });
   }
 
+  /* ---------- owner push (per-booking pickup alerts) ---------- */
+  var PUSH_VAPID = 'BPhfMyXA0u3qoaknWZToDqkY3gkHosnbGZn-9CtmEd92kVQx69On5GO_H-XdSVFkfSvYtmvcRX1S0m-iSHqea48';
+  var PUSH_CFG = { apiKey: 'AIzaSyAVU4PeZJI8xqo7YOm8QiKvryEVXuv9gLk', authDomain: 'binditails-da2de.firebaseapp.com', projectId: 'binditails-da2de', storageBucket: 'binditails-da2de.firebasestorage.app', messagingSenderId: '376117416695', appId: '1:376117416695:web:f11c59342cc6a750d739f2' };
+  var _msg = null;
+  function pushSupported() { return ('serviceWorker' in navigator) && ('Notification' in window) && window.firebase && firebase.messaging; }
+  function getMessaging() { if (!firebase.apps.length) firebase.initializeApp(PUSH_CFG); if (!_msg) _msg = firebase.messaging(); return _msg; }
+  function getPushToken() {
+    return navigator.serviceWorker.register('/firebase-messaging-sw.js').then(function (reg) {
+      return getMessaging().getToken({ vapidKey: PUSH_VAPID, serviceWorkerRegistration: reg });
+    });
+  }
+
   /* ---------- static menus (client-side estimate only) ---------- */
   var STYLISTS = [
     { name: 'Britni', role: 'Owner & Groomer' },
@@ -280,7 +292,17 @@
         apptLine +
         '<div class="steps">' + steps + '</div>' +
         reschedHtml +
-        '</div>' + loyaltyCard;
+        '</div>' +
+        (t.step < 6 ? (
+          '<div class="card" style="margin-top:0.6rem;background:#fff0f7">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap">' +
+            '<div><strong>🔔 Pickup alerts</strong><div class="muted" style="margin-top:-0.1rem">Get a notification the moment ' + esc(t.petName || 'your pup') + ' is ready.</div></div>' +
+            '<button class="btn btn--soft btn--sm" id="custAlert" type="button">' + (t.alertsOn ? '🔕 Turn off alerts' : '🔔 Alert me when ready') + '</button>' +
+          '</div>' +
+          '<div class="muted" id="custAlertMsg" style="margin-top:0.4rem"></div>' +
+          '</div>'
+        ) : '') +
+        loyaltyCard;
       var cc = $('custCancel');
       if (cc) cc.addEventListener('click', function () {
         if (!confirm('Cancel this appointment?')) return;
@@ -297,6 +319,39 @@
           .then(function () { toast('New time requested — we\'ll confirm shortly! 🩷'); doTrack(); })
           .catch(function (e) { toast(e.message); rg.disabled = false; });
       });
+      var alertBtn = $('custAlert');
+      if (alertBtn) {
+        var alertsOn = !!t.alertsOn;
+        var isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+        var isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
+        alertBtn.addEventListener('click', function () {
+          var msg = $('custAlertMsg');
+          if (!pushSupported()) { if (msg) msg.textContent = 'Your browser doesn\u2019t support alerts — call us at 304-921-2748 and we\u2019ll let you know.'; return; }
+          if (!alertsOn && isIOS && !isStandalone) { if (msg) msg.textContent = 'On iPhone/iPad: tap Share → “Add to Home Screen,” open it from there, then tap this again. 🐩'; return; }
+          alertBtn.disabled = true;
+          if (msg) msg.textContent = alertsOn ? 'Turning off…' : 'Setting up your alert…';
+          var flow;
+          if (alertsOn) {
+            flow = getPushToken().then(function (token) {
+              return token ? api('spaTrackPush', { code: t.code, token: token, action: 'unsubscribe' }) : { subscribed: false };
+            });
+          } else {
+            flow = Promise.resolve(Notification.requestPermission()).then(function (perm) {
+              if (perm !== 'granted') throw new Error('Allow notifications to get pickup alerts.');
+              return getPushToken();
+            }).then(function (token) {
+              if (!token) throw new Error('Couldn\u2019t set up alerts — please try again.');
+              return api('spaTrackPush', { code: t.code, token: token });
+            });
+          }
+          flow.then(function (res) {
+            alertsOn = !!(res && res.subscribed);
+            alertBtn.textContent = alertsOn ? '🔕 Turn off alerts' : '🔔 Alert me when ready';
+            if (msg) msg.textContent = alertsOn ? '✅ You\u2019ll get a notification when ' + (t.petName || 'your pup') + ' is ready!' : 'Alerts off — you won\u2019t get a pickup notification.';
+            alertBtn.disabled = false;
+          }).catch(function (e) { if (msg) msg.textContent = e.message; alertBtn.disabled = false; });
+        });
+      }
     }).catch(function (err) {
       $('trackBody').innerHTML = '<div class="empty"><div class="big">🔍</div><p>' + esc(err.message || 'No booking found for that code.') + '</p></div>';
     });
@@ -644,17 +699,27 @@
       if (ticketHasPayment(t)) actions += can('manager') ? '<button class="btn btn--soft btn--sm" data-void="' + t.id + '">Void</button>' : '';
       else if (!t.voided) actions += '<button class="btn btn--soft btn--sm" data-del="' + t.id + '">✕</button>';
       var owner = t.owner || {};
+      // Owner-notification buttons: email works today; push reaches the owner's
+      // device only if they opted in on their tracking page; SMS is dormant.
+      var notify = '';
+      if (!done && !t.voided && t.step >= 1) {
+        if (owner.email) notify += '<button class="btn btn--soft btn--sm" data-email="' + t.id + '" data-kind="' + (ready ? 'ready' : 'checkedin') + '">✉️ Email: ' + (ready ? 'ready' : 'checked in') + '</button>';
+        notify += '<button class="btn ' + (ready ? 'btn--gold' : 'btn--soft') + ' btn--sm" data-push="' + t.id + '" data-kind="' + (ready ? 'ready' : 'checkedin') + '">🔔 Push' + (t.alertsOn ? '' : ' *') + ': ' + (ready ? 'ready' : 'checked in') + '</button>';
+        notify += '<button class="btn btn--soft btn--sm" data-sms="' + t.id + '" title="Text messaging is coming soon" style="opacity:0.55">💬 Text (soon)</button>';
+      }
       return '<div class="card ticket ' + (ready ? 'ticket--ready' : '') + (done || t.voided ? ' ticket--done' : '') + '" style="' + (t.voided ? 'opacity:0.6;text-decoration:line-through' : '') + '">' +
         '<div class="ticket__top"><strong>' + esc(t.pet && t.pet.name || t.petName) + '</strong>' + chip + apptBadge + depBadge + vaxIntakeChip(t.vaxIntake) +
+        (t.alertsOn ? '<span class="appt-badge">🔔 alerts on</span>' : '') +
         '<span class="ticket__code" style="margin-left:auto">' + esc(t.code) + '</span></div>' +
         '<div class="ticket__svcs">' + esc((t.services || []).join(' · ')) + ' — ' + esc(t.stylist) +
         (t.requestedTime ? ' · ' + esc(t.requestedTime) : '') + (t.est ? ' · est ' + money(t.est) : '') +
         (t.finalTotal ? ' · <strong>paid ' + money(t.finalTotal) + '</strong>' : '') + '</div>' +
-        (owner.name || owner.phone ? '<div class="muted">📱 ' + esc(owner.name || '') + (owner.phone ? ' · ' + esc(owner.phone) : '') + '</div>' : '') +
+        (owner.name || owner.phone || owner.email ? '<div class="muted">📱 ' + esc(owner.name || '') + (owner.phone ? ' · ' + esc(owner.phone) : '') + (owner.email ? ' · ✉️ ' + esc(owner.email) : '') + '</div>' : '') +
         (t.pet && t.pet.notes ? '<div class="muted">📝 ' + esc(t.pet.notes) + '</div>' : '') +
         safetyLine(t.safety) +
         (t.vaxIntake && t.vaxIntake.status === 'rejected' && t.vaxIntake.reason ? '<div class="muted">💉 Rejected: ' + esc(t.vaxIntake.reason) + '</div>' : '') +
         (t.voided && t.voidReason ? '<div class="muted">Void reason: ' + esc(t.voidReason) + '</div>' : '') +
+        (notify ? '<div class="ticket__actions" style="border-top:1px dashed #f0d3e4;padding-top:0.4rem;margin-top:0.2rem">' + notify + '</div>' : '') +
         '<div class="ticket__actions">' + actions + '</div></div>';
     }).join('');
 
@@ -666,6 +731,9 @@
       api('spaDelete', { pin: staffPin, id: el.dataset.del }).then(renderBoard).catch(function (e) { toast(e.message); });
     }); });
     box.querySelectorAll('[data-void]').forEach(function (el) { el.addEventListener('click', function () { voidTicket(el.dataset.void); }); });
+    box.querySelectorAll('[data-email]').forEach(function (el) { el.addEventListener('click', function () { notifyOwner(el.dataset.email, 'email', el.dataset.kind, el); }); });
+    box.querySelectorAll('[data-push]').forEach(function (el) { el.addEventListener('click', function () { notifyOwner(el.dataset.push, 'push', el.dataset.kind, el); }); });
+    box.querySelectorAll('[data-sms]').forEach(function (el) { el.addEventListener('click', function () { toast('💬 Text messaging is coming soon — use email or a push alert for now.'); }); });
     box.querySelectorAll('[data-sched]').forEach(function (el) { el.addEventListener('click', function () { openSchedule(el.dataset.sched); }); });
     box.querySelectorAll('[data-confirm]').forEach(function (el) { el.addEventListener('click', function () {
       api('spaConfirm', { pin: staffPin, id: el.dataset.confirm }).then(function () { toast('Confirmed ✓'); renderBoard(); }).catch(function (e) { toast(e.message); });
@@ -705,6 +773,17 @@
       }
       renderBoard();
     }).catch(function (e) { toast(e.message); });
+  }
+  function notifyOwner(id, channel, kind, btn) {
+    var label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    api('spaNotifyOwner', { pin: staffPin, id: id, channel: channel, kind: kind })
+      .then(function (res) {
+        if (channel === 'push') toast('🔔 Alert sent to ' + (res.sent || 1) + ' device' + ((res.sent || 1) === 1 ? '' : 's'));
+        else toast('✉️ Email sent to the owner');
+        renderBoard();
+      })
+      .catch(function (e) { toast(e.message); if (btn) { btn.disabled = false; btn.textContent = label; } });
   }
   $('boardRefresh').addEventListener('click', renderBoard);
 
