@@ -3366,6 +3366,20 @@ exports.pinkPoodleSpa = onRequest(
               derived[phone].pets.push(cleanPet({ name: pn, breed: x.pet.breed, size: x.pet.size, notes: x.pet.notes }));
             }
           });
+          // Fold in owners who booked via the public form but were never checked
+          // in as a ticket yet — so staff can find & reuse them instead of re-adding.
+          try {
+            const bsnap = await db.collection("pp_bookings").orderBy("ts", "desc").limit(2000).get();
+            bsnap.docs.forEach((d) => {
+              const x = d.data() || {};
+              if (x.test) return;
+              const phone = String(x.phone || "").trim();
+              if (!phone || savedPhones[phone] || derived[phone]) return;
+              derived[phone] = { id: "", name: x.name || "", phone, phones: [{ type: "Mobile", number: phone }], email: x.email || "", notes: "", pets: [], visits: 0, spent: 0, lastVisit: 0, derived: true };
+              const pn = String(x.dog || "").trim();
+              if (pn) derived[phone].pets.push(cleanPet({ name: pn, breed: x.breed || "" }));
+            });
+          } catch (e) { console.error("spaClients bookings fold failed", e && e.message); }
           const all = clients.concat(Object.values(derived).map(stamp));
           return res.json({ ok: true, clients: all, requiredVax: required, knownVax: KNOWN_VAX });
         }
