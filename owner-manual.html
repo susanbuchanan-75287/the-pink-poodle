@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>The Pink Poodle — Owner Manual 🐩</title>
+  <style>
+    :root { --pink:#e75a9c; --pink-deep:#b83372; --pink-soft:#f7c9dd; --wash:#fff0f7; --ink:#2c1c26; --ink-soft:#6a5560; --gold:#c9a24b; --white:#fff; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); line-height: 1.55; margin: 0; background: #fbeef5; }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 2rem 1.4rem 4rem; background: var(--white); }
+    header.title { text-align: center; border-bottom: 3px solid var(--pink-soft); padding-bottom: 1rem; margin-bottom: 1.6rem; }
+    header.title .logo { font-size: 2.2rem; font-weight: 800; color: var(--pink-deep); letter-spacing: .02em; }
+    header.title .sub { text-transform: uppercase; letter-spacing: .22em; font-size: .72rem; color: var(--ink-soft); margin-top: .2rem; }
+    header.title .tag { color: var(--ink-soft); margin-top: .5rem; font-size: .95rem; }
+    h1 { font-size: 1.35rem; color: var(--pink-deep); border-left: 5px solid var(--pink); padding-left: .6rem; margin-top: 2rem; }
+    h2 { font-size: 1.05rem; color: var(--ink); margin-top: 1.3rem; }
+    p, li { font-size: .95rem; }
+    ol.toc { background: var(--wash); border: 1px solid var(--pink-soft); border-radius: 12px; padding: 1rem 1rem 1rem 2.2rem; }
+    ol.toc a { color: var(--pink-deep); text-decoration: none; }
+    ol.toc a:hover { text-decoration: underline; }
+    .callout { border-radius: 12px; padding: .8rem 1rem; margin: 1rem 0; font-size: .9rem; }
+    .callout--tip { background: #eafaf0; border: 1px solid #b7e4c7; }
+    .callout--warn { background: #fff6e5; border: 1px solid #f5d78a; }
+    .callout--info { background: var(--wash); border: 1px solid var(--pink-soft); }
+    .btn-ex { display: inline-block; background: var(--pink-deep); color: #fff; border-radius: 999px; padding: .1rem .6rem; font-size: .8rem; font-weight: 600; white-space: nowrap; }
+    .btn-ex--soft { background: var(--pink-soft); color: var(--pink-deep); }
+    .btn-ex--gold { background: var(--gold); color: #3a2b06; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .88rem; }
+    th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--pink-soft); vertical-align: top; }
+    th { background: var(--wash); color: var(--pink-deep); }
+    code { background: #f3e4ec; padding: .05rem .35rem; border-radius: 5px; font-size: .85em; }
+    footer { margin-top: 3rem; border-top: 1px solid var(--pink-soft); padding-top: 1rem; color: var(--ink-soft); font-size: .82rem; text-align: center; }
+    @media print {
+      body { background: #fff; }
+      .wrap { max-width: none; padding: 0; }
+      h1 { break-after: avoid; }
+      .callout, table { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header class="title">
+    <div class="logo">The Pink Poodle 🐩</div>
+    <div class="sub">Spa &amp; Booking</div>
+    <div class="tag">Owner Manual — setting up &amp; running the business</div>
+  </header>
+
+  <div class="callout callout--info">
+    This manual is for you, the owner. For the day-to-day board, check-ins, and notifying owners, your stylists have their own <strong>Staff Manual</strong> — this one focuses on the setup and business tools that are <strong>owner-only</strong>. You do everything staff can do, plus the extras below.
+  </div>
+
+  <h1 id="toc">What's in this manual</h1>
+  <ol class="toc">
+    <li><a href="#pins">Team &amp; PINs — who can do what</a></li>
+    <li><a href="#notify">Owner notifications (check-in &amp; pickup)</a></li>
+    <li><a href="#book">How customers book &amp; track</a></li>
+    <li><a href="#fees">Fees, deposits &amp; the review booster</a></li>
+    <li><a href="#vaxcfg">Required vaccinations</a></li>
+    <li><a href="#money">The books — Ledger &amp; Reports</a></li>
+    <li><a href="#messaging">Messaging &amp; promos</a></li>
+    <li><a href="#square">Square (optional)</a></li>
+    <li><a href="#security">Security &amp; privacy</a></li>
+    <li><a href="#faq">Quick answers</a></li>
+  </ol>
+
+  <h1 id="pins">1. Team &amp; PINs — who can do what</h1>
+  <p>Everyone signs into the staff app with a PIN. There are three roles, ranked <strong>owner ▸ manager ▸ stylist</strong>:</p>
+  <table>
+    <tr><th>Role</th><th>Can do</th></tr>
+    <tr><td><strong>Stylist</strong></td><td>The board, check-ins, notifying owners, checkout, clients, vaccinations.</td></tr>
+    <tr><td><strong>Manager</strong></td><td>All that, plus <em>void</em> paid tickets, edit fees &amp; the ledger, and edit the required-vaccine list.</td></tr>
+    <tr><td><strong>Owner</strong></td><td>Everything, including the setup below.</td></tr>
+  </table>
+  <h2>Setting each person's PIN</h2>
+  <p>Go to <strong>⚙️ Fees &amp; PIN</strong> → <strong>Employee PINs 👥</strong>. For each team member you can set their personal PIN and choose their role. There's a <span class="btn-ex btn-ex--soft">🎲 Random PIN</span> generator in the Salon Console staff editor that creates a one-time PIN you can copy and hand to them.</p>
+  <ul>
+    <li>The <strong>shared salon PIN</strong> (Change owner PIN) always signs in as <strong>owner</strong> — a good fallback, but give people their own PINs so actions are traceable.</li>
+    <li>PINs are 4–8 digits, stored encrypted (we never show them again), and can't duplicate someone else's or the shared PIN.</li>
+  </ul>
+  <div class="callout callout--warn"><strong>Rotate a PIN</strong> whenever someone leaves or a device is lost. Clearing a person's PIN stops them signing in with it.</div>
+
+  <h1 id="notify">2. Owner notifications 📣</h1>
+  <p>Once a pup is checked in, every board ticket shows buttons to notify the owner. This keeps people informed and cuts down on "is she ready yet?" calls.</p>
+  <table>
+    <tr><th>Channel</th><th>Status</th><th>Notes</th></tr>
+    <tr><td><span class="btn-ex btn-ex--soft">✉️ Email</span> (checked in / ready)</td><td><strong>Live</strong></td><td>Sends instantly to the owner's email. Works any time we have their email on file.</td></tr>
+    <tr><td><span class="btn-ex btn-ex--gold">🔔 Push</span> (ready for pickup)</td><td><strong>Live</strong></td><td>A notification on the owner's phone — but <em>only</em> if they opted in on their tracking page (see below).</td></tr>
+    <tr><td><span class="btn-ex btn-ex--soft">💬 Text (SMS)</span></td><td><strong>Coming soon</strong></td><td>The button is there but dormant. Turning on real texting requires a registered business texting number (US A2P&nbsp;10DLC) — a future step.</td></tr>
+  </table>
+  <div class="callout callout--info"><strong>How push opt-in works:</strong> after booking, the owner opens their tracking page (their booking code) and taps <em>"🔔 Alert me when ready."</em> Their phone is then linked to that one booking. The ticket shows a <span class="btn-ex btn-ex--soft">🔔 alerts on</span> badge so staff know push will reach them. No opt-in = staff simply use email.</div>
+  <p>Emails come from the salon's verified sender and are logged on each ticket, so you can see what was sent.</p>
+
+  <h1 id="book">3. How customers book &amp; track</h1>
+  <ol>
+    <li>On the public site a customer fills in their pup, services, preferred time, and contact info, agrees to the vaccination/handling OKs, and taps <span class="btn-ex btn-ex--gold">Request</span>.</li>
+    <li>They get a 6-character <strong>booking code (REF)</strong>. They enter that on the <strong>Track</strong> tab to watch the pipeline live — and to turn on pickup alerts.</li>
+    <li>Fully booked? Customers can join the <strong>Waitlist</strong>; you text them when a slot opens.</li>
+  </ol>
+  <p>Every booking automatically creates/updates the owner &amp; pet in your <strong>Clients</strong> CRM — no double entry.</p>
+
+  <h1 id="fees">4. Fees, deposits &amp; the review booster</h1>
+  <p>All under <strong>⚙️ Fees &amp; PIN</strong>:</p>
+  <ul>
+    <li><strong>Fee list</strong> — the line items that appear at checkout. Edit prices any time (manager+).</li>
+    <li><strong>Booking deposits</strong> — turn on to request a deposit (with a default amount) for appointments; it's applied at checkout.</li>
+    <li><strong>Review booster</strong> — a few hours after pickup, automatically invite happy owners to leave a Google or Facebook review. Set it on/off, the delay, your review links, and the message. Off until you set it up.</li>
+  </ul>
+
+  <h1 id="vaxcfg">5. Required vaccinations 💉</h1>
+  <p>Under <strong>⚙️ Fees &amp; PIN</strong> set the <strong>required-vaccine list</strong> (manager+). Owners can upload proof at booking; staff verify or reject it on the board, and verified rabies dates save to the pet's profile. The <strong>💉 Vaccinations</strong> tab shows who's due or missing proof.</p>
+  <div class="callout callout--warn">A pup with no valid proof shouldn't be groomed — the app flags this clearly at drop-off.</div>
+
+  <h1 id="money">6. The books — Ledger &amp; Reports 📒</h1>
+  <ul>
+    <li><strong>📒 Ledger</strong> — every checkout posts a balanced double-entry journal automatically (debits always equal credits). Managers can add manual entries. Export to CSV any time.</li>
+    <li><strong>📊 Reports</strong> — sales and activity summaries.</li>
+    <li><strong>Voids</strong> — a paid ticket is never deleted; voiding it (manager+) reverses the entry so your books stay accurate.</li>
+  </ul>
+  <div class="callout callout--tip">Because the ledger balances on every sale, your totals are always audit-ready. Export the CSV for your bookkeeper.</div>
+
+  <h1 id="messaging">7. Messaging &amp; promos</h1>
+  <p>From the <strong>Clients</strong> and <strong>Messages</strong> areas you can reach customers three ways:</p>
+  <ul>
+    <li><strong>Email blast</strong> — to all customers, BCC'd so addresses stay private.</li>
+    <li><strong>Web push blast</strong> — to everyone who subscribed to salon alerts on the public site (shows a live subscriber count).</li>
+    <li><strong>SMS</strong> — real texting is a future step (needs the registered texting number). Until then, per-customer buttons open <em>your own</em> phone's Messages/Mail app pre-filled to send.</li>
+  </ul>
+  <div class="callout callout--warn"><strong>Opt-outs are honored automatically.</strong> Customers who reply STOP are unsubscribed; each has an opt-in flag in the CRM. Don't send marketing texts through the future SMS path until the number is properly registered.</div>
+
+  <h1 id="square">8. Square (optional)</h1>
+  <p>If you connect Square, the customer editor gains a <strong>Sync to Square</strong> button and each visit can be recorded as a sale in Square's history. It's optional and clearly labeled — if Square can't complete something, the app tells you instead of failing silently. Money never flows through this app; Square handles payments on your own account.</p>
+
+  <h1 id="security">9. Security &amp; privacy 🔒</h1>
+  <ul>
+    <li>Customer contact and pet info sits behind the staff PIN. Fine for a trusted front desk — <strong>rotate the PIN if a device is lost.</strong></li>
+    <li>Nothing is stored in the browser: staff re-enter their PIN after a reload, and customers track by code (no saved login to steal).</li>
+    <li>The public booking form is rate-limited and spam-protected; owner emails come from a verified sender.</li>
+    <li>These manuals and the staff app are marked private (not listed on search engines).</li>
+  </ul>
+
+  <h1 id="faq">10. Quick answers</h1>
+  <table>
+    <tr><th>Question</th><th>Answer</th></tr>
+    <tr><td>How do I add a new stylist?</td><td>Add them in the staff roster, then set their PIN &amp; role under Employee PINs.</td></tr>
+    <tr><td>An owner isn't getting push alerts.</td><td>Push only works after they opt in on their tracking page. Look for the "🔔 alerts on" badge; otherwise use email.</td></tr>
+    <tr><td>When will texting work?</td><td>After a business texting number is registered (US A2P 10DLC). The dormant 💬 button is ready for that day.</td></tr>
+    <tr><td>Can I undo a paid sale?</td><td>Void it (manager/owner) — it reverses the books instead of deleting, keeping your ledger balanced.</td></tr>
+    <tr><td>Where's my customer list?</td><td>The 📇 Clients tab — searchable, exportable to CSV.</td></tr>
+    <tr><td>I forgot the owner PIN.</td><td>Use your backup access to reset it; reset links are emailed to the owner and backup admin on file.</td></tr>
+  </table>
+
+  <footer>
+    The Pink Poodle 🐩 · (304) 921-2748 · Owner Manual<br />
+    This page is private (not listed on search engines). Keep PINs and reset emails confidential.
+  </footer>
+</div>
+</body>
+</html>

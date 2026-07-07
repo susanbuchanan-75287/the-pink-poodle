@@ -23,6 +23,7 @@ Every page is built to feel native on phones and tablets as well as desktop:
 | `site.webmanifest` | Marketing-site PWA manifest (Android install / home-screen) |
 | `script.js` | Nav, gallery lightbox, scroll reveals, SMS booking composer |
 | `firebase-messaging-sw.js` | Root service worker: web-push (FCM) **and** spa-app offline cache |
+| `owner-manual.html` / `staff-manual.html` | Printable how-to guides (owner setup/business tools; stylist day-to-day). Private (`noindex`), no secrets. |
 | `assets/` | Photos of Britni, Paris, and freshly-groomed pups |
 | `CNAME` | Custom domain for GitHub Pages (`thepinkpoodle.dog`) |
 

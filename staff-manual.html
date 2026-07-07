@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>The Pink Poodle — Staff Manual 🐩</title>
+  <style>
+    :root { --pink:#e75a9c; --pink-deep:#b83372; --pink-soft:#f7c9dd; --wash:#fff0f7; --ink:#2c1c26; --ink-soft:#6a5560; --gold:#c9a24b; --white:#fff; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); line-height: 1.55; margin: 0; background: #fbeef5; }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 2rem 1.4rem 4rem; background: var(--white); }
+    header.title { text-align: center; border-bottom: 3px solid var(--pink-soft); padding-bottom: 1rem; margin-bottom: 1.6rem; }
+    header.title .logo { font-size: 2.2rem; font-weight: 800; color: var(--pink-deep); letter-spacing: .02em; }
+    header.title .sub { text-transform: uppercase; letter-spacing: .22em; font-size: .72rem; color: var(--ink-soft); margin-top: .2rem; }
+    header.title .tag { color: var(--ink-soft); margin-top: .5rem; font-size: .95rem; }
+    h1 { font-size: 1.35rem; color: var(--pink-deep); border-left: 5px solid var(--pink); padding-left: .6rem; margin-top: 2rem; }
+    h2 { font-size: 1.08rem; color: var(--ink); margin-top: 1.4rem; }
+    p, li { font-size: .95rem; }
+    ol.toc { background: var(--wash); border: 1px solid var(--pink-soft); border-radius: 12px; padding: 1rem 1rem 1rem 2.2rem; }
+    ol.toc a { color: var(--pink-deep); text-decoration: none; }
+    ol.toc a:hover { text-decoration: underline; }
+    .step-flow { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; background: var(--wash); border-radius: 12px; padding: .8rem; margin: .8rem 0; }
+    .step-flow .s { background: var(--white); border: 1.5px solid var(--pink-soft); border-radius: 999px; padding: .25rem .7rem; font-size: .85rem; font-weight: 600; color: var(--pink-deep); }
+    .step-flow .arrow { color: var(--pink); font-weight: 700; }
+    .callout { border-radius: 12px; padding: .8rem 1rem; margin: 1rem 0; font-size: .9rem; }
+    .callout--tip { background: #eafaf0; border: 1px solid #b7e4c7; }
+    .callout--warn { background: #fff6e5; border: 1px solid #f5d78a; }
+    .callout--info { background: var(--wash); border: 1px solid var(--pink-soft); }
+    .btn-ex { display: inline-block; background: var(--pink-deep); color: #fff; border-radius: 999px; padding: .1rem .6rem; font-size: .8rem; font-weight: 600; white-space: nowrap; }
+    .btn-ex--soft { background: var(--pink-soft); color: var(--pink-deep); }
+    .btn-ex--gold { background: var(--gold); color: #3a2b06; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .88rem; }
+    th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--pink-soft); vertical-align: top; }
+    th { background: var(--wash); color: var(--pink-deep); }
+    code { background: #f3e4ec; padding: .05rem .35rem; border-radius: 5px; font-size: .85em; }
+    footer { margin-top: 3rem; border-top: 1px solid var(--pink-soft); padding-top: 1rem; color: var(--ink-soft); font-size: .82rem; text-align: center; }
+    @media print {
+      body { background: #fff; }
+      .wrap { max-width: none; padding: 0; }
+      h1 { break-after: avoid; }
+      .callout, table, .step-flow { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header class="title">
+    <div class="logo">The Pink Poodle 🐩</div>
+    <div class="sub">Spa &amp; Booking</div>
+    <div class="tag">Staff Manual — everything a stylist needs to run the day</div>
+  </header>
+
+  <div class="callout callout--info">
+    <strong>This app lives in your browser</strong> at <code>thepinkpoodle.dog/spa.html</code>. Nothing is saved on the device — so you'll re-enter your PIN after a reload, and customers track their pup by a booking code (there's no saved login for them). Add it to your phone's Home Screen for one-tap access.
+  </div>
+
+  <h1 id="toc">What's in this manual</h1>
+  <ol class="toc">
+    <li><a href="#login">Signing in</a></li>
+    <li><a href="#board">The Status Board (your main screen)</a></li>
+    <li><a href="#checkin">Checking a pup in</a></li>
+    <li><a href="#notify">Letting the owner know (email, push, text)</a></li>
+    <li><a href="#contact">Finding owner &amp; safety info</a></li>
+    <li><a href="#vax">Vaccination proof</a></li>
+    <li><a href="#checkout">Checkout &amp; deposits</a></li>
+    <li><a href="#cancel">Cancelling, rescheduling &amp; walk-ins</a></li>
+    <li><a href="#clients">Clients, Upcoming &amp; Waitlist</a></li>
+    <li><a href="#faq">Quick answers</a></li>
+  </ol>
+
+  <h1 id="login">1. Signing in</h1>
+  <p>Tap <span class="btn-ex btn-ex--soft">🔒 Staff</span> in the top-right corner and enter your <strong>PIN</strong>. Everyone gets their own 4–8 digit PIN from the owner. Your PIN decides what you can do:</p>
+  <table>
+    <tr><th>Role</th><th>What you can do</th></tr>
+    <tr><td><strong>Stylist</strong></td><td>Everything day-to-day: the board, check-ins, notifying owners, checkout, clients, vaccinations.</td></tr>
+    <tr><td><strong>Manager</strong></td><td>All of the above, plus <em>void</em> paid tickets, edit fees &amp; the ledger, and edit the required-vaccine list.</td></tr>
+    <tr><td><strong>Owner</strong></td><td>Full access, including PINs, deposits setup, and the review booster.</td></tr>
+  </table>
+  <div class="callout callout--warn"><strong>Never share your PIN.</strong> If you forget it or think someone else knows it, ask the owner to reset it. Buttons you don't have permission for are hidden or will say "needs a manager/owner PIN."</div>
+
+  <h1 id="board">2. The Status Board 🧼</h1>
+  <p>The <strong>Board</strong> is your home base — today's pups shown as cards. Each pup moves along this pipeline, one tap at a time:</p>
+  <div class="step-flow">
+    <span class="s">📝 Requested</span><span class="arrow">→</span>
+    <span class="s">🐾 Checked in</span><span class="arrow">→</span>
+    <span class="s">🛁 Bathing</span><span class="arrow">→</span>
+    <span class="s">✂️ Grooming</span><span class="arrow">→</span>
+    <span class="s">✨ Finishing</span><span class="arrow">→</span>
+    <span class="s">🔔 Ready for pickup</span><span class="arrow">→</span>
+    <span class="s">🏠 Picked up</span>
+  </div>
+  <p>On each card:</p>
+  <ul>
+    <li><span class="btn-ex">Next: … →</span> moves the pup forward a step; <span class="btn-ex btn-ex--soft">‹ Back</span> steps back if you tapped too soon.</li>
+    <li>Filter by stylist using the pills at the top, and tap <span class="btn-ex btn-ex--soft">↻ Refresh</span> to pull the latest.</li>
+    <li>Badges show appointment time, deposit status, vaccination status, and <span class="btn-ex btn-ex--soft">🔔 alerts on</span> when the owner has turned on pickup alerts.</li>
+  </ul>
+
+  <h1 id="checkin">3. Checking a pup in</h1>
+  <ol>
+    <li>Find the pup's card (or tap <span class="btn-ex btn-ex--soft">＋ Walk-in</span> to add one on the spot — just the pet's name and stylist).</li>
+    <li>Tap <span class="btn-ex">Next: Checked in →</span>. That's it — the owner can now see "Checked in" on their tracking page.</li>
+    <li>Glance at the card for the owner's contact line and any 🆘 emergency / 🤝 pickup / 🩺 vet notes.</li>
+  </ol>
+  <div class="callout callout--tip">Once a pup is checked in, the <strong>owner-notification buttons</strong> appear on the card (see next section).</div>
+
+  <h1 id="notify">4. Letting the owner know 📣</h1>
+  <p>After check-in, each card shows a row of notify buttons. Use them at drop-off ("checked in") and when the pup is ready.</p>
+  <table>
+    <tr><th>Button</th><th>What it does</th><th>When to use</th></tr>
+    <tr><td><span class="btn-ex btn-ex--soft">✉️ Email: checked in / ready</span></td><td>Sends the owner a friendly email right away. <strong>Works whenever we have their email.</strong></td><td>Drop-off, and again when ready.</td></tr>
+    <tr><td><span class="btn-ex btn-ex--gold">🔔 Push: ready</span></td><td>Pops a notification straight onto the owner's phone.</td><td>When the pup is <strong>Ready for pickup</strong>.</td></tr>
+    <tr><td><span class="btn-ex btn-ex--soft">💬 Text (soon)</span></td><td>Coming later — texting isn't switched on yet.</td><td>Not yet — use email or push.</td></tr>
+  </table>
+  <div class="callout callout--warn">
+    <strong>Push only reaches owners who turned it on.</strong> The owner has to tap <em>"🔔 Alert me when ready"</em> on their own tracking page first. If they haven't, the Push button will tell you so — just use <strong>✉️ Email</strong> instead. Look for the <span class="btn-ex btn-ex--soft">🔔 alerts on</span> badge to know push will work. A <code>*</code> next to the Push button means the owner hasn't opted in yet.
+  </div>
+  <p>You'll see a little confirmation ("✉️ Email sent" / "🔔 Alert sent to 1 device") when it goes through. If there's no email on file, add one in the <strong>Clients</strong> tab.</p>
+
+  <h1 id="contact">5. Finding owner &amp; safety info</h1>
+  <p>The card already shows the essentials: <strong>📱 owner name · phone · ✉️ email</strong>, plus the pup's notes and any safety info the owner gave us:</p>
+  <ul>
+    <li>🆘 <strong>Emergency contact</strong> (name, relationship, phone)</li>
+    <li>🤝 <strong>Authorized pickup</strong> — who else is allowed to collect the pup</li>
+    <li>🩺 <strong>Vet contact</strong> for emergencies</li>
+  </ul>
+  <p>For the full profile — all phone numbers, every pet, groom notes, history — open the <strong>📇 Clients</strong> tab and search by name, phone, or pet.</p>
+
+  <h1 id="vax">6. Vaccination proof 💉</h1>
+  <p>If an owner uploaded proof when booking, the card shows a <span class="btn-ex btn-ex--soft">🔍 Vax proof</span> button:</p>
+  <ul>
+    <li><span class="btn-ex btn-ex--soft">🔍 Vax proof</span> — opens the photo/PDF they sent.</li>
+    <li><span class="btn-ex btn-ex--soft">✓ Vax OK</span> — mark it verified (you can save the rabies expiration date to their profile).</li>
+    <li><span class="btn-ex btn-ex--soft">✕ Vax reject</span> — reject with a reason (e.g. "expired") so the owner knows what to bring.</li>
+  </ul>
+  <div class="callout callout--warn">No valid vaccination proof = the pup can't be groomed. Check this at drop-off.</div>
+
+  <h1 id="checkout">7. Checkout &amp; deposits 💳</h1>
+  <ul>
+    <li><span class="btn-ex btn-ex--gold">💳 Checkout</span> — build the final total from line items, apply a discount or tip, pick the payment method, and record the sale. This posts to the books automatically.</li>
+    <li><span class="btn-ex btn-ex--soft">💳 Deposit</span> — send/record a deposit for a future appointment (if the owner has it set up).</li>
+    <li><span class="btn-ex btn-ex--soft">🔁 Rebook</span> — clone the visit forward as a standing appointment.</li>
+  </ul>
+  <div class="callout callout--info">A <strong>paid</strong> ticket can't be deleted — it must be <strong>Voided</strong> (manager or owner) so the books stay balanced. Unpaid tickets can be removed with the ✕ button.</div>
+
+  <h1 id="cancel">8. Cancelling, rescheduling &amp; walk-ins</h1>
+  <ul>
+    <li><span class="btn-ex btn-ex--soft">Cancel</span> — cancel a ticket (with an optional no-show fee).</li>
+    <li><span class="btn-ex btn-ex--soft">📅 Schedule / Reschedule</span> — set or change the appointment date &amp; time; <span class="btn-ex btn-ex--soft">✓ Confirm</span> confirms it.</li>
+    <li><span class="btn-ex btn-ex--soft">＋ Walk-in</span> — add a pup that arrived without booking.</li>
+  </ul>
+
+  <h1 id="clients">9. Clients, Upcoming &amp; Waitlist</h1>
+  <ul>
+    <li><strong>📇 Clients</strong> — every owner, their pups, contact info, vaccination status, visits &amp; spend. This is where you add/fix an owner's email or phone.</li>
+    <li><strong>📅 Upcoming</strong> — future booked appointments.</li>
+    <li><strong>🎟️ Waitlist</strong> — pups waiting for an opening; tap to text the owner a slot has opened.</li>
+    <li><strong>💉 Vaccinations</strong> — who's due or missing proof.</li>
+  </ul>
+
+  <h1 id="faq">10. Quick answers</h1>
+  <table>
+    <tr><th>Question</th><th>Answer</th></tr>
+    <tr><td>The Push button says the owner hasn't turned on alerts.</td><td>That's normal — ask them to open their tracking page and tap "🔔 Alert me when ready," or just send the ✉️ Email instead.</td></tr>
+    <tr><td>No email on file.</td><td>Add it in the Clients tab, then the ✉️ Email button will work.</td></tr>
+    <tr><td>I got logged out.</td><td>The app never stores your login — re-enter your PIN. Add the site to your Home Screen so it stays handy.</td></tr>
+    <tr><td>The Text (💬) button doesn't send.</td><td>Correct — texting isn't switched on yet. Use email or push.</td></tr>
+    <tr><td>Wrong step / tapped too fast.</td><td>Use the <span class="btn-ex btn-ex--soft">‹ Back</span> button on the card.</td></tr>
+  </table>
+
+  <footer>
+    The Pink Poodle 🐩 · (304) 921-2748 · Staff Manual<br />
+    Questions about the app? Ask the owner. This page is private (not listed on search engines).
+  </footer>
+</div>
+</body>
+</html>
